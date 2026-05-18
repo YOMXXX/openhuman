@@ -26,6 +26,11 @@ const initialState: ChannelConnectionsState = {
     telegram: makeEmptyChannelModes(),
     discord: makeEmptyChannelModes(),
     web: makeEmptyChannelModes(),
+    // Required by `ChannelType` after #2048 widened the union. Empty
+    // entries keep the `Record<ChannelType, …>` total — runtime state
+    // populates them when the user wires up credentials.
+    lark: makeEmptyChannelModes(),
+    dingtalk: makeEmptyChannelModes(),
   },
 };
 

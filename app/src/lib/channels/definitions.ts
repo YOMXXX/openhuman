@@ -174,6 +174,17 @@ export const FALLBACK_DEFINITIONS: ChannelDefinition[] = [
             placeholder: 'websocket (default) or webhook',
           },
           {
+            key: 'port',
+            label: 'Webhook Port',
+            // Numeric — field_type stays 'string' because the schema-driven
+            // form renderer only accepts 'string' | 'secret' | 'boolean'.
+            // LarkConfig parses it back to u16. Keep aligned with the Rust
+            // lark_definition() entry.
+            field_type: 'string',
+            required: false,
+            placeholder: 'Optional — local HTTP port when receive_mode = webhook (e.g. 8080)',
+          },
+          {
             key: 'allowed_users',
             label: 'Allowed Users',
             field_type: 'string',

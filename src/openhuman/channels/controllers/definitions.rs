@@ -374,6 +374,19 @@ fn lark_definition() -> ChannelDefinition {
                     placeholder: "websocket (default) or webhook",
                 },
                 FieldRequirement {
+                    key: "port",
+                    label: "Webhook Port",
+                    // FieldRequirement.field_type currently accepts
+                    // "string" / "secret" / "boolean" only (see the doc
+                    // comment on FieldRequirement). Numeric port values
+                    // are typed in as plain strings; the LarkConfig
+                    // deserialiser parses them back to u16.
+                    field_type: "string",
+                    required: false,
+                    placeholder:
+                        "Optional — local HTTP port when receive_mode = webhook (e.g. 8080)",
+                },
+                FieldRequirement {
                     key: "allowed_users",
                     label: "Allowed Users",
                     field_type: "string",

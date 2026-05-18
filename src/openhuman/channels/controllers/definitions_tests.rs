@@ -173,19 +173,25 @@ fn lark_uses_api_key_auth_with_app_id_and_secret_required() {
     );
 
     // Optional but supported: encrypt_key, verification_token, use_feishu,
-    // receive_mode, allowed_users. Field names map 1:1 to `LarkConfig` in
-    // `src/openhuman/config/schema/channels.rs` — any rename on the backend
-    // side will fail this assertion before the UI silently breaks.
+    // receive_mode, port, allowed_users. Field names map 1:1 to `LarkConfig`
+    // in `src/openhuman/config/schema/channels.rs` — any rename on the
+    // backend side will fail this assertion before the UI silently breaks.
     for key in [
         "encrypt_key",
         "verification_token",
         "use_feishu",
         "receive_mode",
+        "port",
         "allowed_users",
     ] {
+        let field = spec
+            .fields
+            .iter()
+            .find(|f| f.key == key)
+            .unwrap_or_else(|| panic!("lark spec missing optional field: {}", key));
         assert!(
-            spec.fields.iter().any(|f| f.key == key),
-            "lark spec missing optional field: {}",
+            !field.required,
+            "lark optional field {} must not be required",
             key
         );
     }
@@ -238,6 +244,22 @@ fn dingtalk_requires_client_id_and_client_secret() {
         client_secret.field_type, "secret",
         "client_secret must be a secret-typed field"
     );
+
+    // DingTalkConfig in `src/openhuman/config/schema/channels.rs` also
+    // accepts `allowed_users` (Vec<String>, defaults to empty). Pin it
+    // as an optional field here for the same reason we pin Lark's
+    // optional set — schema renames blow up at test time, not in
+    // production UI.
+    let allowed_users = spec
+        .fields
+        .iter()
+        .find(|f| f.key == "allowed_users")
+        .expect("dingtalk spec missing optional allowed_users field");
+    assert!(
+        !allowed_users.required,
+        "dingtalk allowed_users must not be required"
+    );
+    assert_eq!(allowed_users.field_type, "string");
 }
 
 #[test]
