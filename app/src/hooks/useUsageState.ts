@@ -1,10 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 
-import {
-  CHAT_WORKLOADS,
-  loadAISettings,
-  type AISettings,
-} from '../services/api/aiSettingsApi';
+import { type AISettings, CHAT_WORKLOADS, loadAISettings } from '../services/api/aiSettingsApi';
 import { billingApi } from '../services/api/billingApi';
 import { creditsApi, type TeamUsage } from '../services/api/creditsApi';
 import { CoreRpcError } from '../services/coreRpcClient';
@@ -38,11 +34,7 @@ export interface UsageState {
 const CACHE_TTL_MS = 60_000;
 
 let _cache: {
-  data: {
-    teamUsage: TeamUsage;
-    currentPlan: CurrentPlanData;
-    aiSettings: AISettings | null;
-  };
+  data: { teamUsage: TeamUsage; currentPlan: CurrentPlanData; aiSettings: AISettings | null };
   fetchedAt: number;
 } | null = null;
 
@@ -170,8 +162,7 @@ export function useUsageState(): UsageState {
   // completed-budget warning in chat even though they are not in an exhausted
   // paid cycle — but only when their chat actually flows through OpenHuman.
   const rawShouldShowBudgetCompletedMessage = teamUsage
-    ? rawBudgetExhausted ||
-      (teamUsage.cycleBudgetUsd <= 0.01 && teamUsage.remainingUsd <= 0.01)
+    ? rawBudgetExhausted || (teamUsage.cycleBudgetUsd <= 0.01 && teamUsage.remainingUsd <= 0.01)
     : false;
 
   const isBudgetExhausted = !allChatWorkloadsRoutedAway && rawBudgetExhausted;

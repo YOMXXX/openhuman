@@ -14,14 +14,10 @@ vi.mock('../services/api/creditsApi', () => ({
 }));
 
 vi.mock('../services/api/aiSettingsApi', async () => {
-  const actual =
-    await vi.importActual<typeof import('../services/api/aiSettingsApi')>(
-      '../services/api/aiSettingsApi'
-    );
-  return {
-    ...actual,
-    loadAISettings: () => mockLoadAISettings(),
-  };
+  const actual = await vi.importActual<typeof import('../services/api/aiSettingsApi')>(
+    '../services/api/aiSettingsApi'
+  );
+  return { ...actual, loadAISettings: () => mockLoadAISettings() };
 });
 
 // All chat workloads routed to OpenHuman — the default for every existing
@@ -336,11 +332,7 @@ describe('useUsageState', () => {
           providerSlug: 'openrouter',
           model: 'anthropic/claude-sonnet-4.6',
         },
-        coding: {
-          kind: 'cloud',
-          providerSlug: 'openrouter',
-          model: 'anthropic/claude-sonnet-4.6',
-        },
+        coding: { kind: 'cloud', providerSlug: 'openrouter', model: 'anthropic/claude-sonnet-4.6' },
         // Background workloads may still route to openhuman — the suppression
         // logic only consults CHAT_WORKLOADS (reasoning/agentic/coding).
         memory: { kind: 'openhuman' },
@@ -404,11 +396,7 @@ describe('useUsageState', () => {
           providerSlug: 'openrouter',
           model: 'anthropic/claude-sonnet-4.6',
         },
-        coding: {
-          kind: 'cloud',
-          providerSlug: 'openrouter',
-          model: 'anthropic/claude-sonnet-4.6',
-        },
+        coding: { kind: 'cloud', providerSlug: 'openrouter', model: 'anthropic/claude-sonnet-4.6' },
         memory: { kind: 'openhuman' },
         embeddings: { kind: 'openhuman' },
         heartbeat: { kind: 'openhuman' },
