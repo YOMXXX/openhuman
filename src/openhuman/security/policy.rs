@@ -777,32 +777,45 @@ impl SecurityPolicy {
         // Symlink-safe check (#1927). The string-level checks above can be
         // bypassed by creating a symlink inside the workspace that points to
         // a forbidden tree (e.g. `evil -> /etc/shadow`). Canonicalize the
-        // path and re-validate `workspace_only` containment + forbidden_paths
-        // against the resolved location.
+        // path and re-validate against the workspace boundary + the
+        // forbidden_paths list.
+        //
+        // The forbidden_paths re-check only applies when the resolved
+        // location is OUTSIDE the workspace. The workspace itself can
+        // legitimately live inside a directory the default
+        // forbidden_paths list considers "system" — most notably `/tmp`,
+        // which is the conventional CI tempdir root and where all
+        // `tools/impl/filesystem` integration tests construct their
+        // workspaces. Paths inside the workspace are trusted as a unit;
+        // only escapes are subject to forbidden_paths.
         if let Some(canonical) = self.try_canonicalize_under_workspace(path) {
-            if self.workspace_only {
-                let workspace_root = self
-                    .workspace_dir
-                    .canonicalize()
-                    .unwrap_or_else(|_| self.workspace_dir.clone());
-                if !canonical.starts_with(&workspace_root) {
-                    return false;
-                }
+            let workspace_root = self
+                .workspace_dir
+                .canonicalize()
+                .unwrap_or_else(|_| self.workspace_dir.clone());
+            let inside_workspace = canonical.starts_with(&workspace_root);
+
+            if self.workspace_only && !inside_workspace {
+                return false;
             }
-            for forbidden in &self.forbidden_paths {
-                let forbidden_expanded = if let Some(stripped) = forbidden.strip_prefix("~/") {
-                    std::env::var("HOME")
-                        .ok()
-                        .map(|h| PathBuf::from(h).join(stripped))
-                        .unwrap_or_else(|| PathBuf::from(forbidden))
-                } else {
-                    PathBuf::from(forbidden)
-                };
-                let forbidden_canonical = forbidden_expanded
-                    .canonicalize()
-                    .unwrap_or(forbidden_expanded);
-                if canonical.starts_with(&forbidden_canonical) {
-                    return false;
+
+            if !inside_workspace {
+                for forbidden in &self.forbidden_paths {
+                    let forbidden_expanded =
+                        if let Some(stripped) = forbidden.strip_prefix("~/") {
+                            std::env::var("HOME")
+                                .ok()
+                                .map(|h| PathBuf::from(h).join(stripped))
+                                .unwrap_or_else(|| PathBuf::from(forbidden))
+                        } else {
+                            PathBuf::from(forbidden)
+                        };
+                    let forbidden_canonical = forbidden_expanded
+                        .canonicalize()
+                        .unwrap_or(forbidden_expanded);
+                    if canonical.starts_with(&forbidden_canonical) {
+                        return false;
+                    }
                 }
             }
         }
