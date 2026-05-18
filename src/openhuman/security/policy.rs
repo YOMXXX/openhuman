@@ -801,15 +801,14 @@ impl SecurityPolicy {
 
             if !inside_workspace {
                 for forbidden in &self.forbidden_paths {
-                    let forbidden_expanded =
-                        if let Some(stripped) = forbidden.strip_prefix("~/") {
-                            std::env::var("HOME")
-                                .ok()
-                                .map(|h| PathBuf::from(h).join(stripped))
-                                .unwrap_or_else(|| PathBuf::from(forbidden))
-                        } else {
-                            PathBuf::from(forbidden)
-                        };
+                    let forbidden_expanded = if let Some(stripped) = forbidden.strip_prefix("~/") {
+                        std::env::var("HOME")
+                            .ok()
+                            .map(|h| PathBuf::from(h).join(stripped))
+                            .unwrap_or_else(|| PathBuf::from(forbidden))
+                    } else {
+                        PathBuf::from(forbidden)
+                    };
                     let forbidden_canonical = forbidden_expanded
                         .canonicalize()
                         .unwrap_or(forbidden_expanded);
