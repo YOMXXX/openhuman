@@ -15,7 +15,15 @@ import ChannelSetupModal from '../../channels/ChannelSetupModal';
 import SettingsHeader from '../components/SettingsHeader';
 import { useSettingsNavigation } from '../hooks/useSettingsNavigation';
 
-const CHANNEL_ICONS: Record<string, string> = { telegram: '✈️', discord: '🎮', web: '🌐' };
+const CHANNEL_ICONS: Record<string, string> = {
+  telegram: '✈️',
+  discord: '🎮',
+  web: '🌐',
+  // Lark (国际版) / Feishu (中国版) — same backend, single icon.
+  lark: '🪶',
+  // DingTalk (钉钉).
+  dingtalk: '🔔',
+};
 
 function statusDot(status: ChannelConnectionStatus): string {
   switch (status) {
