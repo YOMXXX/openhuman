@@ -995,6 +995,14 @@ impl Agent {
                 ));
                 log::info!("[learning] tool_memory_capture hook registered");
             }
+
+            post_turn_hooks.push(Arc::new(
+                crate::openhuman::agent_experience::AgentExperienceCaptureHook::new(
+                    memory.clone(),
+                    true,
+                ),
+            ));
+            log::info!("[learning] agent_experience_capture hook registered");
         }
 
         // Resolve the per-agent delegation tool set and visible-tool
