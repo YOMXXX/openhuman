@@ -22,11 +22,11 @@ describe('MessagingPanel CHANNEL_ICONS', () => {
   });
 
   it('has no duplicate emoji values (icons remain visually distinct)', () => {
+    // Two channels sharing the same emoji would make their rows visually
+    // indistinguishable in the panel. Asserting uniqueness here catches
+    // the easy copy-paste mistake at test time.
     const values = Object.values(CHANNEL_ICONS);
     const unique = new Set(values);
-    expect(unique.size).toBe(
-      values.length,
-      'two channels share the same emoji — users cannot visually distinguish their rows'
-    );
+    expect(unique.size).toBe(values.length);
   });
 });
