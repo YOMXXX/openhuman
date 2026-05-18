@@ -169,7 +169,31 @@ impl Tool for ImageInfoTool {
             return Ok(ToolResult::error(format!("File not found: {path_str}")));
         }
 
-        let metadata = tokio::fs::metadata(path)
+        // Resolve before reading to block symlink escapes (#1927). The
+        // sibling filesystem tools (file_read, file_write, edit_file,
+        // apply_patch, grep, list_files, csv_export) already pair their
+        // string-level is_path_allowed check with this canonical
+        // is_resolved_path_allowed check; image_info was the lone outlier
+        // that string-checked the input and then read the path verbatim,
+        // so an in-workspace symlink whose target escaped the workspace
+        // exfiltrated arbitrary files.
+        let resolved_path = match tokio::fs::canonicalize(path).await {
+            Ok(p) => p,
+            Err(e) => {
+                return Ok(ToolResult::error(format!(
+                    "Failed to resolve image path: {e}"
+                )));
+            }
+        };
+
+        if !self.security.is_resolved_path_allowed(&resolved_path) {
+            return Ok(ToolResult::error(format!(
+                "Resolved path escapes workspace: {}",
+                resolved_path.display()
+            )));
+        }
+
+        let metadata = tokio::fs::metadata(&resolved_path)
             .await
             .map_err(|e| anyhow::anyhow!("Failed to read file metadata: {e}"))?;
 
@@ -181,7 +205,7 @@ impl Tool for ImageInfoTool {
             )));
         }
 
-        let bytes = tokio::fs::read(path)
+        let bytes = tokio::fs::read(&resolved_path)
             .await
             .map_err(|e| anyhow::anyhow!("Failed to read image file: {e}"))?;
 
@@ -473,5 +497,66 @@ mod tests {
         assert!(result.output().contains("data:image/png;base64,"));
 
         let _ = tokio::fs::remove_dir_all(&dir).await;
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn image_info_blocks_symlink_escape() {
+        use std::os::unix::fs::symlink;
+
+        let root = std::env::temp_dir().join("openhuman_image_info_symlink_escape");
+        let workspace = root.join("workspace");
+        let outside = root.join("outside");
+
+        let _ = tokio::fs::remove_dir_all(&root).await;
+        tokio::fs::create_dir_all(&workspace).await.unwrap();
+        tokio::fs::create_dir_all(&outside).await.unwrap();
+
+        // Write a real PNG outside the workspace — the tool would otherwise
+        // succeed in reading it (the format/size checks would pass), which
+        // is the exfiltration path #1927 reports.
+        let secret = outside.join("secret.png");
+        let png_bytes: Vec<u8> = vec![
+            0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, // signature
+            0x00, 0x00, 0x00, 0x0D, // IHDR length
+            0x49, 0x48, 0x44, 0x52, // IHDR
+            0x00, 0x00, 0x00, 0x01, // width: 1
+            0x00, 0x00, 0x00, 0x01, // height: 1
+            0x08, 0x02, 0x00, 0x00, 0x00, // bit depth, color type, etc.
+        ];
+        tokio::fs::write(&secret, &png_bytes).await.unwrap();
+
+        // Create a symlink inside the workspace that points to the file
+        // outside it. The string-level is_path_allowed check accepts the
+        // absolute symlink path; only canonicalize + is_resolved_path_allowed
+        // catches that the resolved location escapes the workspace.
+        let escape = workspace.join("escape.png");
+        symlink(&secret, &escape).unwrap();
+
+        let security = Arc::new(SecurityPolicy {
+            autonomy: AutonomyLevel::Full,
+            workspace_dir: workspace.clone(),
+            // workspace_only=false matches the other image_info tests, which
+            // pass absolute paths to the tool. This isolates the assertion to
+            // the resolved-path escape check — the symlink target lives in a
+            // sibling tempdir, not under workspace_dir.
+            workspace_only: false,
+            forbidden_paths: vec![],
+            ..SecurityPolicy::default()
+        });
+
+        let tool = ImageInfoTool::new(security);
+        let result = tool
+            .execute(json!({"path": escape.to_string_lossy()}))
+            .await
+            .unwrap();
+        assert!(result.is_error);
+        assert!(
+            result.output().contains("escapes workspace"),
+            "expected 'escapes workspace' in error, got: {}",
+            result.output()
+        );
+
+        let _ = tokio::fs::remove_dir_all(&root).await;
     }
 }
