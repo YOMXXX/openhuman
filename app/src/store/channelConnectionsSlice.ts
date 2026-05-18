@@ -60,6 +60,13 @@ const channelConnectionsSlice = createSlice({
       state.connections.telegram = makeEmptyChannelModes();
       state.connections.discord = makeEmptyChannelModes();
       state.connections.web = makeEmptyChannelModes();
+      // After #2048 widened ChannelType, redux-persist rehydrated states
+      // from before the channels existed wouldn't have these keys; without
+      // explicit initialisation here, the first `upsertChannelConnection`
+      // for either channel would crash on `state.connections[channel]`
+      // being undefined. Pin them by default so the migration is total.
+      state.connections.lark = makeEmptyChannelModes();
+      state.connections.dingtalk = makeEmptyChannelModes();
       state.defaultMessagingChannel = 'telegram';
       state.migrationCompleted = true;
       state.schemaVersion = SCHEMA_VERSION;
