@@ -349,7 +349,7 @@ describe('useUsageState', () => {
       expect(result.current.isLoading).toBe(false);
     });
 
-    expect(result.current.allChatWorkloadsRoutedAway).toBe(true);
+    expect(result.current.isFullyRoutedAway).toBe(true);
     expect(result.current.shouldShowBudgetCompletedMessage).toBe(false);
     expect(result.current.isBudgetExhausted).toBe(false);
     expect(result.current.isRateLimited).toBe(false);
@@ -411,7 +411,7 @@ describe('useUsageState', () => {
       expect(result.current.isLoading).toBe(false);
     });
 
-    expect(result.current.allChatWorkloadsRoutedAway).toBe(false);
+    expect(result.current.isFullyRoutedAway).toBe(false);
     expect(result.current.shouldShowBudgetCompletedMessage).toBe(true);
     expect(result.current.isBudgetExhausted).toBe(true);
     expect(result.current.isAtLimit).toBe(true);
@@ -456,7 +456,7 @@ describe('useUsageState', () => {
       expect(result.current.isLoading).toBe(false);
     });
 
-    expect(result.current.allChatWorkloadsRoutedAway).toBe(false);
+    expect(result.current.isFullyRoutedAway).toBe(false);
     expect(result.current.shouldShowBudgetCompletedMessage).toBe(true);
     expect(result.current.isBudgetExhausted).toBe(true);
     expect(result.current.isAtLimit).toBe(true);
@@ -517,7 +517,7 @@ describe('useUsageState', () => {
       expect(result.current.isLoading).toBe(false);
     });
 
-    expect(result.current.allChatWorkloadsRoutedAway).toBe(true);
+    expect(result.current.isFullyRoutedAway).toBe(true);
     expect(result.current.shouldShowBudgetCompletedMessage).toBe(false);
     expect(result.current.isBudgetExhausted).toBe(false);
     expect(result.current.isRateLimited).toBe(false);
@@ -573,7 +573,7 @@ describe('useUsageState', () => {
       // to window.unhandledrejection.
       expect(result.current.teamUsage).toBeNull();
       expect(result.current.currentPlan).toBeNull();
-      expect(result.current.allChatWorkloadsRoutedAway).toBe(false);
+      expect(result.current.isFullyRoutedAway).toBe(false);
       expect(unhandled).not.toHaveBeenCalled();
     } finally {
       window.removeEventListener('unhandledrejection', unhandled);

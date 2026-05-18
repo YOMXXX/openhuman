@@ -26,7 +26,7 @@ export interface UsageState {
    * user has explicitly bypassed the hosted backend for chat, the included
    * budget cycle no longer gates them. See #2040 and #2041.
    */
-  allChatWorkloadsRoutedAway: boolean;
+  isFullyRoutedAway: boolean;
   isLoading: boolean;
   refresh: () => void;
 }
@@ -155,7 +155,7 @@ export function useUsageState(): UsageState {
   // user. Conservative on missing aiSettings (treat as still using
   // openhuman) so we never silently disable the gate after a transient
   // fetch failure (#2040, #2041).
-  const allChatWorkloadsRoutedAway = aiSettings
+  const isFullyRoutedAway = aiSettings
     ? CHAT_WORKLOADS.every(w => {
         const ref = aiSettings.routing[w];
         return ref !== undefined && ref.kind !== 'openhuman';
@@ -173,9 +173,9 @@ export function useUsageState(): UsageState {
     ? rawBudgetExhausted || (teamUsage.cycleBudgetUsd <= 0.01 && teamUsage.remainingUsd <= 0.01)
     : false;
 
-  const isBudgetExhausted = !allChatWorkloadsRoutedAway && rawBudgetExhausted;
+  const isBudgetExhausted = !isFullyRoutedAway && rawBudgetExhausted;
   const shouldShowBudgetCompletedMessage =
-    !allChatWorkloadsRoutedAway && rawShouldShowBudgetCompletedMessage;
+    !isFullyRoutedAway && rawShouldShowBudgetCompletedMessage;
 
   const rawRateLimited =
     teamUsage !== null &&
@@ -184,7 +184,7 @@ export function useUsageState(): UsageState {
     teamUsage.cycleLimit5hr >= teamUsage.fiveHourCapUsd;
   // The 5-hour cycle cap is an OpenHuman-backend rate limit; it does not
   // apply when every chat workload bypasses OpenHuman for inference.
-  const isRateLimited = !allChatWorkloadsRoutedAway && rawRateLimited;
+  const isRateLimited = !isFullyRoutedAway && rawRateLimited;
 
   const isAtLimit = isBudgetExhausted || isRateLimited;
 
@@ -202,7 +202,7 @@ export function useUsageState(): UsageState {
     isRateLimited,
     isBudgetExhausted,
     shouldShowBudgetCompletedMessage,
-    allChatWorkloadsRoutedAway,
+    isFullyRoutedAway,
     isLoading,
     refresh,
   };
