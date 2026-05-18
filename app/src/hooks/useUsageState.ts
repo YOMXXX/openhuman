@@ -67,9 +67,17 @@ async function fetchUsageData(): Promise<{
     }),
     // AI settings drive the "routed away from openhuman" detection used to
     // suppress the budget banner when the user supplied their own provider
-    // key (#2040 / #2041). A failure here is treated as "unknown" — the
-    // budget gate stays in its conservative (banner-on) state.
-    loadAISettings().catch(() => USAGE_UNAVAILABLE),
+    // key (#2040 / #2041). Mirror the sibling fetches: re-throw
+    // CoreRpcError(kind='auth_expired') so the documented session-expired
+    // signal still reaches the global re-auth handler (graycyrus review on
+    // #2053). Other failures are treated as "unknown" — the budget gate
+    // stays in its conservative (banner-on) state.
+    loadAISettings().catch(err => {
+      if (err instanceof CoreRpcError && err.kind === 'auth_expired') {
+        throw err;
+      }
+      return USAGE_UNAVAILABLE;
+    }),
   ]);
   const data = {
     teamUsage: teamUsage === USAGE_UNAVAILABLE ? null : (teamUsage as TeamUsage),

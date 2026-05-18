@@ -461,4 +461,122 @@ describe('useUsageState', () => {
     expect(result.current.isBudgetExhausted).toBe(true);
     expect(result.current.isAtLimit).toBe(true);
   });
+
+  it('suppresses the budget banner when every chat workload routes to a local Ollama provider (#2040, #2041, ProviderRef kind=local)', async () => {
+    // Companion to the cloud-provider case above. The PR description claims
+    // suppression also applies to ProviderRef kind='local' (Ollama on-device
+    // inference). graycyrus review on #2053 flagged that none of the new
+    // tests pinned that path. This one does.
+    const { useUsageState } = await import('./useUsageState');
+
+    mockGetCurrentPlan.mockResolvedValue({
+      plan: 'BASIC',
+      hasActiveSubscription: true,
+      planExpiry: '2026-05-01T00:00:00.000Z',
+      subscription: {
+        id: 'sub_123',
+        status: 'active',
+        currentPeriodEnd: '2026-05-01T00:00:00.000Z',
+        quantity: 1,
+      },
+      monthlyBudgetUsd: 20,
+      weeklyBudgetUsd: 10,
+      fiveHourCapUsd: 3,
+    });
+    mockGetTeamUsage.mockResolvedValue({
+      remainingUsd: 0,
+      cycleBudgetUsd: 10,
+      cycleLimit5hr: 3, // at the cap to also exercise rate-limit gating
+      cycleLimit7day: 10,
+      fiveHourCapUsd: 3,
+      fiveHourResetsAt: null,
+      cycleStartDate: '2026-04-09T00:00:00.000Z',
+      cycleEndsAt: '2026-04-16T00:00:00.000Z',
+      bypassCycleLimit: false,
+    });
+    mockLoadAISettings.mockResolvedValue({
+      cloudProviders: [],
+      routing: {
+        // All three chat workloads on local Ollama models.
+        reasoning: { kind: 'local', model: 'qwen3:8b' },
+        agentic: { kind: 'local', model: 'qwen3:8b' },
+        coding: { kind: 'local', model: 'qwen3:8b' },
+        // Background workloads are intentionally left on openhuman to
+        // prove the gate is keyed on chat workloads only.
+        memory: { kind: 'openhuman' },
+        embeddings: { kind: 'openhuman' },
+        heartbeat: { kind: 'openhuman' },
+        learning: { kind: 'openhuman' },
+        subconscious: { kind: 'openhuman' },
+      },
+    });
+
+    const { result } = renderHook(() => useUsageState());
+
+    await waitFor(() => {
+      expect(result.current.isLoading).toBe(false);
+    });
+
+    expect(result.current.allChatWorkloadsRoutedAway).toBe(true);
+    expect(result.current.shouldShowBudgetCompletedMessage).toBe(false);
+    expect(result.current.isBudgetExhausted).toBe(false);
+    expect(result.current.isRateLimited).toBe(false);
+    expect(result.current.isAtLimit).toBe(false);
+  });
+
+  it('rethrows CoreRpcError(kind=auth_expired) from loadAISettings instead of swallowing it (graycyrus review on #2053)', async () => {
+    // The two sibling fetches (getTeamUsage, getCurrentPlan) explicitly
+    // re-throw auth_expired so coreRpcClient's global re-auth event fires.
+    // loadAISettings goes through the same RPC layer and must follow the
+    // same contract — otherwise a session-expired user gets stale data
+    // instead of a re-auth prompt.
+    const { useUsageState } = await import('./useUsageState');
+    const { CoreRpcError } = await import('../services/coreRpcClient');
+
+    mockGetCurrentPlan.mockResolvedValue({
+      plan: 'FREE',
+      hasActiveSubscription: false,
+      planExpiry: null,
+      subscription: null,
+      monthlyBudgetUsd: 0,
+      weeklyBudgetUsd: 0,
+      fiveHourCapUsd: 0,
+    });
+    mockGetTeamUsage.mockResolvedValue({
+      remainingUsd: 0,
+      cycleBudgetUsd: 0,
+      cycleLimit5hr: 0,
+      cycleLimit7day: 0,
+      fiveHourCapUsd: 0,
+      fiveHourResetsAt: null,
+      cycleStartDate: '2026-04-09T00:00:00.000Z',
+      cycleEndsAt: '2026-04-16T00:00:00.000Z',
+      bypassCycleLimit: false,
+    });
+    mockLoadAISettings.mockRejectedValue(
+      new CoreRpcError(
+        'GET /ai/settings failed (401 Unauthorized): Session expired.',
+        'auth_expired',
+        401
+      )
+    );
+
+    const unhandled = vi.fn();
+    window.addEventListener('unhandledrejection', unhandled);
+    try {
+      const { result } = renderHook(() => useUsageState());
+      await waitFor(() => {
+        expect(result.current.isLoading).toBe(false);
+      });
+      // The hook's outer .catch swallows auth_expired silently (matching
+      // the existing #1472 contract). The rejection must NOT have leaked
+      // to window.unhandledrejection.
+      expect(result.current.teamUsage).toBeNull();
+      expect(result.current.currentPlan).toBeNull();
+      expect(result.current.allChatWorkloadsRoutedAway).toBe(false);
+      expect(unhandled).not.toHaveBeenCalled();
+    } finally {
+      window.removeEventListener('unhandledrejection', unhandled);
+    }
+  });
 });
