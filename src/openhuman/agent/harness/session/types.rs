@@ -10,6 +10,7 @@ use crate::openhuman::agent::dispatcher::ToolDispatcher;
 use crate::openhuman::agent::hooks::PostTurnHook;
 use crate::openhuman::agent::memory_loader::MemoryLoader;
 use crate::openhuman::agent::progress::AgentProgress;
+use crate::openhuman::agent_tool_policy::ToolPolicySession;
 use crate::openhuman::context::prompt::SystemPromptBuilder;
 use crate::openhuman::context::ContextManager;
 use crate::openhuman::inference::provider::{ChatMessage, ConversationMessage, Provider};
@@ -40,6 +41,7 @@ pub struct Agent {
     /// this filter — they apply per-definition whitelists in the runner.
     /// Empty = no filter (all tools visible, backward compat).
     pub(super) visible_tool_names: std::collections::HashSet<String>,
+    pub(super) tool_policy: ToolPolicySession,
     pub(super) memory: Arc<dyn Memory>,
     pub(super) tool_dispatcher: Box<dyn ToolDispatcher>,
     pub(super) memory_loader: Box<dyn MemoryLoader>,

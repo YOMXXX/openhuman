@@ -25,6 +25,7 @@ use crate::openhuman::agent::harness;
 use crate::openhuman::agent::hooks::{self, ToolCallRecord, TurnContext};
 use crate::openhuman::agent::memory_loader::collect_recall_citations;
 use crate::openhuman::agent::progress::AgentProgress;
+use crate::openhuman::agent_tool_policy::render_tool_policy_boundary;
 use crate::openhuman::context::prompt::{LearnedContextData, PromptContext, PromptTool};
 use crate::openhuman::context::{ReductionOutcome, ARCHIVIST_EXTRACTION_PROMPT};
 use crate::openhuman::inference::provider::{
@@ -974,76 +975,91 @@ impl Agent {
                 false,
             )
         } else if let Some(tool) = self.tools.iter().find(|t| t.name() == call.name) {
-            // Per-call options: ask the tool for markdown output when the
-            // context manager is configured to prefer it. Tools that
-            // implement `execute_with_options` will populate
-            // `markdown_formatted`; others fall through to the default
-            // implementation which forwards to `execute`.
-            let prefer_markdown = self.context.prefer_markdown_tool_output();
-            let options = ToolCallOptions { prefer_markdown };
-            let outcome = tool
-                .execute_with_options(call.arguments.clone(), options)
-                .await;
-            match outcome {
-                Ok(r) => {
-                    if !r.is_error {
-                        let mut output = r.output_for_llm(prefer_markdown);
-                        if prefer_markdown && r.markdown_formatted.is_some() {
-                            log::debug!(
-                                "[agent_loop] tool={} returned markdown payload bytes={}",
-                                call.name,
-                                output.len()
-                            );
-                        }
-                        // Issue #574 — if a payload summarizer is wired
-                        // in (orchestrator session only) and the output
-                        // exceeds the configured threshold, hand it to
-                        // the summarizer sub-agent before it enters
-                        // history. On any failure or below-threshold
-                        // payload, leave `output` untouched and let the
-                        // existing tool_result_budget_bytes truncation
-                        // pipeline handle it downstream.
-                        if let Some(ps) = self.payload_summarizer.as_ref() {
-                            log::debug!(
-                                "[agent_loop] payload_summarizer intercepting tool={} bytes={}",
-                                call.name,
-                                output.len()
-                            );
-                            match ps.maybe_summarize(&call.name, None, &output).await {
-                                Ok(Some(payload)) => {
-                                    log::info!(
+            let decision = self.tool_policy.decision_for(&call.name);
+            if decision.is_denied() {
+                let required = decision
+                    .required_permission
+                    .map(|permission| permission.to_string())
+                    .unwrap_or_else(|| "unknown".to_string());
+                (
+                    format!(
+                        "Tool '{}' blocked by tool policy: requires {}, channel '{}' allows {}",
+                        call.name, required, self.event_channel, decision.allowed_permission
+                    ),
+                    false,
+                )
+            } else {
+                // Per-call options: ask the tool for markdown output when the
+                // context manager is configured to prefer it. Tools that
+                // implement `execute_with_options` will populate
+                // `markdown_formatted`; others fall through to the default
+                // implementation which forwards to `execute`.
+                let prefer_markdown = self.context.prefer_markdown_tool_output();
+                let options = ToolCallOptions { prefer_markdown };
+                let outcome = tool
+                    .execute_with_options(call.arguments.clone(), options)
+                    .await;
+                match outcome {
+                    Ok(r) => {
+                        if !r.is_error {
+                            let mut output = r.output_for_llm(prefer_markdown);
+                            if prefer_markdown && r.markdown_formatted.is_some() {
+                                log::debug!(
+                                    "[agent_loop] tool={} returned markdown payload bytes={}",
+                                    call.name,
+                                    output.len()
+                                );
+                            }
+                            // Issue #574 — if a payload summarizer is wired
+                            // in (orchestrator session only) and the output
+                            // exceeds the configured threshold, hand it to
+                            // the summarizer sub-agent before it enters
+                            // history. On any failure or below-threshold
+                            // payload, leave `output` untouched and let the
+                            // existing tool_result_budget_bytes truncation
+                            // pipeline handle it downstream.
+                            if let Some(ps) = self.payload_summarizer.as_ref() {
+                                log::debug!(
+                                    "[agent_loop] payload_summarizer intercepting tool={} bytes={}",
+                                    call.name,
+                                    output.len()
+                                );
+                                match ps.maybe_summarize(&call.name, None, &output).await {
+                                    Ok(Some(payload)) => {
+                                        log::info!(
                                         "[agent_loop] payload_summarizer compressed tool={} {}->{} bytes",
                                         call.name,
                                         payload.original_bytes,
                                         payload.summary_bytes
                                     );
-                                    output = payload.summary;
-                                }
-                                Ok(None) => {
-                                    log::debug!(
+                                        output = payload.summary;
+                                    }
+                                    Ok(None) => {
+                                        log::debug!(
                                         "[agent_loop] payload_summarizer pass-through tool={} bytes={}",
                                         call.name,
                                         output.len()
                                     );
-                                }
-                                Err(e) => {
-                                    log::warn!(
+                                    }
+                                    Err(e) => {
+                                        log::warn!(
                                         "[agent_loop] payload_summarizer error tool={} err={} (passing raw payload through)",
                                         call.name,
                                         e
                                     );
+                                    }
                                 }
                             }
+                            (output, true)
+                        } else {
+                            (
+                                format!("Error: {}", r.output_for_llm(prefer_markdown)),
+                                false,
+                            )
                         }
-                        (output, true)
-                    } else {
-                        (
-                            format!("Error: {}", r.output_for_llm(prefer_markdown)),
-                            false,
-                        )
                     }
+                    Err(e) => (format!("Error executing {}: {e}", call.name), false),
                 }
-                Err(e) => (format!("Error executing {}: {e}", call.name), false),
             }
         } else {
             (format!("Unknown tool: {}", call.name), false)
@@ -1485,17 +1501,7 @@ impl Agent {
         // `delegate_name = "research"`) doesn't collide with a
         // same-named skill tool on the wire — Anthropic 400s on dup
         // tool names where OpenHuman's backend silently accepts.
-        let visible_specs: Vec<crate::openhuman::tools::ToolSpec> =
-            if self.visible_tool_names.is_empty() {
-                (*self.tool_specs).clone()
-            } else {
-                self.tool_specs
-                    .iter()
-                    .filter(|spec| self.visible_tool_names.contains(&spec.name))
-                    .cloned()
-                    .collect()
-            };
-        self.visible_tool_specs = Arc::new(super::builder::dedup_visible_tool_specs(visible_specs));
+        self.rebuild_tool_policy_session();
 
         // Compute add/remove deltas for the log line — useful when
         // diagnosing a Composio connect/revoke that should have rebuilt
@@ -1536,6 +1542,7 @@ impl Agent {
         // borrows from `tools_slice` and lives for the duration of the
         // prompt build.
         let prompt_tools = PromptTool::from_tools(tools_slice);
+        let prompt_visible_tool_names = self.tool_policy.visible_tool_names_for_prompt();
         let ctx = PromptContext {
             workspace_dir: &self.workspace_dir,
             model_name: &self.model_name,
@@ -1544,7 +1551,7 @@ impl Agent {
             skills: &self.skills,
             dispatcher_instructions: &instructions,
             learned,
-            visible_tool_names: &self.visible_tool_names,
+            visible_tool_names: &prompt_visible_tool_names,
             tool_call_format: self.tool_dispatcher.tool_call_format(),
             connected_integrations: &self.connected_integrations,
             connected_identities_md: crate::openhuman::agent::prompts::render_connected_identities(
@@ -1557,7 +1564,11 @@ impl Agent {
         // Route through the global context manager so every
         // prompt-building call-site — main agent, sub-agent runner,
         // channel runtimes — shares one builder configuration.
-        self.context.build_system_prompt(&ctx)
+        let mut prompt = self.context.build_system_prompt(&ctx)?;
+        if let Some(boundary) = render_tool_policy_boundary(&self.tool_policy, 2048) {
+            prompt = format!("{boundary}\n\n{prompt}");
+        }
+        Ok(prompt)
     }
 
     // ─────────────────────────────────────────────────────────────────
