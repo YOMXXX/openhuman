@@ -443,7 +443,40 @@ fn system_prompt_includes_tool_policy_boundary() {
 
     assert!(prompt.contains("## Tool Policy Boundary"));
     assert!(prompt.contains("Allowed tools: echo"));
-    assert!(prompt.contains("Blocked tools: write_notes"));
+    assert!(prompt.contains("Restricted tools: 1 omitted by policy"));
+    assert!(!prompt.contains("write_notes"));
+}
+
+#[test]
+fn set_agent_definition_name_refreshes_tool_policy_identity() {
+    let provider: Arc<dyn Provider> = Arc::new(DummyProvider);
+    let mut config = crate::openhuman::config::AgentConfig::default();
+    config
+        .channel_permissions
+        .insert("turn-test-channel".into(), "read_only".into());
+    let mut agent = make_agent_with_builder(
+        provider,
+        vec![
+            Box::new(EchoTool),
+            Box::new(CountingWriteTool {
+                calls: Arc::new(AtomicUsize::new(0)),
+            }),
+        ],
+        Box::new(FixedMemoryLoader {
+            context: String::new(),
+        }),
+        vec![],
+        config,
+        crate::openhuman::config::ContextConfig::default(),
+    );
+
+    agent.set_agent_definition_name("renamed_agent");
+
+    assert_eq!(agent.tool_policy.profile.agent_id, "renamed_agent");
+    let prompt = agent
+        .build_system_prompt(LearnedContextData::default())
+        .expect("prompt");
+    assert!(prompt.contains("Agent: renamed_agent"));
 }
 
 #[tokio::test]

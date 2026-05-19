@@ -83,6 +83,7 @@ pub struct ToolPolicySession {
     pub capabilities: Vec<ToolCapability>,
     pub allowed_tool_names: BTreeSet<String>,
     pub blocked_tool_names: BTreeSet<String>,
+    pub hidden_tool_names: BTreeSet<String>,
     pub decisions: HashMap<String, ToolPolicyDecision>,
 }
 
@@ -92,7 +93,11 @@ impl ToolPolicySession {
     }
 
     pub fn has_restrictions(&self) -> bool {
-        !self.blocked_tool_names.is_empty()
+        !self.blocked_tool_names.is_empty() || !self.hidden_tool_names.is_empty()
+    }
+
+    pub fn restricted_tool_count(&self) -> usize {
+        self.blocked_tool_names.len() + self.hidden_tool_names.len()
     }
 
     pub fn visible_tool_names_for_prompt(&self) -> HashSet<String> {

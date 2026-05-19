@@ -379,10 +379,11 @@ impl AgentBuilder {
             dedup_visible_tool_specs(visible_tool_specs_unfiltered);
 
         log::info!(
-            "[agent] tool spec filter: total={} visible={} (filter_active={})",
+            "[agent] tool spec filter: total={} visible={} (filter_active={} policy_restricted={})",
             tool_specs.len(),
             visible_tool_specs.len(),
-            !visible_names.is_empty()
+            !visible_names.is_empty(),
+            tool_policy.has_restrictions()
         );
 
         // Pull the provider out of the builder once. We store it on

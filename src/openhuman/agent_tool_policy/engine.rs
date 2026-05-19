@@ -32,6 +32,7 @@ impl ToolPolicyEngine {
 
         let mut allowed_tool_names = BTreeSet::new();
         let mut blocked_tool_names = BTreeSet::new();
+        let mut hidden_tool_names = BTreeSet::new();
         let mut capabilities = Vec::with_capacity(tools.len());
         let mut decisions = HashMap::with_capacity(tools.len());
 
@@ -49,6 +50,16 @@ impl ToolPolicyEngine {
             } else {
                 ToolPolicyAction::Allow
             };
+            log::trace!(
+                target: "openhuman::agent_tool_policy",
+                "[tool-policy] classified tool name={} required={} allowed={} explicitly_hidden={} exceeds_permission={} action={:?}",
+                name,
+                required_permission,
+                allowed_permission,
+                explicitly_hidden,
+                exceeds_permission,
+                action
+            );
 
             let capability = ToolCapability {
                 name: name.clone(),
@@ -59,10 +70,11 @@ impl ToolPolicyEngine {
                 ToolPolicyAction::Allow => {
                     allowed_tool_names.insert(name.clone());
                 }
-                ToolPolicyAction::RequireApproval
-                | ToolPolicyAction::Deny
-                | ToolPolicyAction::HideFromPrompt => {
+                ToolPolicyAction::RequireApproval | ToolPolicyAction::Deny => {
                     blocked_tool_names.insert(name.clone());
+                }
+                ToolPolicyAction::HideFromPrompt => {
+                    hidden_tool_names.insert(name.clone());
                 }
             }
 
@@ -83,6 +95,7 @@ impl ToolPolicyEngine {
             capabilities,
             allowed_tool_names,
             blocked_tool_names,
+            hidden_tool_names,
             decisions,
         }
     }
@@ -93,29 +106,66 @@ fn permission_for_channel(
     channel: &str,
 ) -> PermissionLevel {
     if channel_permissions.is_empty() {
+        log::debug!(
+            target: "openhuman::agent_tool_policy",
+            "[tool-policy] channel permissions empty; preserving legacy unrestricted surface channel={}",
+            channel
+        );
         return PermissionLevel::Dangerous;
     }
 
-    channel_permissions
-        .get(channel)
-        .and_then(|value| parse_permission_level(value))
-        .unwrap_or(PermissionLevel::ReadOnly)
+    match channel_permissions.get(channel) {
+        Some(raw) => match parse_permission_level(raw) {
+            Some(permission) => {
+                log::debug!(
+                    target: "openhuman::agent_tool_policy",
+                    "[tool-policy] resolved channel permission channel={} raw={} permission={}",
+                    channel,
+                    raw,
+                    permission
+                );
+                permission
+            }
+            None => {
+                log::debug!(
+                    target: "openhuman::agent_tool_policy",
+                    "[tool-policy] invalid channel permission; falling back to readonly channel={} raw={}",
+                    channel,
+                    raw
+                );
+                PermissionLevel::ReadOnly
+            }
+        },
+        None => {
+            log::debug!(
+                target: "openhuman::agent_tool_policy",
+                "[tool-policy] channel permission missing; falling back to readonly channel={}",
+                channel
+            );
+            PermissionLevel::ReadOnly
+        }
+    }
 }
 
 fn parse_permission_level(value: &str) -> Option<PermissionLevel> {
-    match value
-        .trim()
-        .to_ascii_lowercase()
-        .replace(['-', '_'], "")
-        .as_str()
-    {
+    let normalized = value.trim().to_ascii_lowercase().replace(['-', '_'], "");
+    let parsed = match normalized.as_str() {
         "none" => Some(PermissionLevel::None),
         "readonly" | "read" => Some(PermissionLevel::ReadOnly),
         "write" => Some(PermissionLevel::Write),
         "execute" | "exec" => Some(PermissionLevel::Execute),
         "dangerous" | "danger" => Some(PermissionLevel::Dangerous),
         _ => None,
+    };
+    if parsed.is_none() {
+        log::trace!(
+            target: "openhuman::agent_tool_policy",
+            "[tool-policy] permission token did not match raw={} normalized={}",
+            value,
+            normalized
+        );
     }
+    parsed
 }
 
 #[cfg(test)]
@@ -249,6 +299,14 @@ mod tests {
         assert!(!session.is_allowed("read_notes"));
         assert!(!session.is_allowed("write_notes"));
         assert!(session.is_allowed("run_script"));
+        assert!(session.blocked_tool_names.is_empty());
+        assert!(session.hidden_tool_names.contains("read_notes"));
+        assert!(session.hidden_tool_names.contains("write_notes"));
+        assert!(session.has_restrictions());
+        assert_eq!(
+            session.visible_tool_names_for_prompt(),
+            HashSet::from(["run_script".to_string()])
+        );
     }
 
     #[test]

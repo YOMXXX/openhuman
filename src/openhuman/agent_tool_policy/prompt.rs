@@ -36,16 +36,11 @@ pub fn render_tool_policy_boundary(
                 .join(", ")
         );
     }
-    if !session.blocked_tool_names.is_empty() {
+    let restricted_tool_count = session.restricted_tool_count();
+    if restricted_tool_count > 0 {
         let _ = writeln!(
             rendered,
-            "- Blocked tools: {}",
-            session
-                .blocked_tool_names
-                .iter()
-                .map(String::as_str)
-                .collect::<Vec<_>>()
-                .join(", ")
+            "- Restricted tools: {restricted_tool_count} omitted by policy"
         );
     }
 
@@ -114,7 +109,7 @@ mod tests {
     }
 
     #[test]
-    fn render_prompt_boundary_lists_allowed_and_blocked_tools() {
+    fn render_prompt_boundary_lists_allowed_and_restricted_summary() {
         let tools: Vec<Box<dyn Tool>> = vec![
             Box::new(PromptTestTool {
                 name: "read_notes".into(),
@@ -141,7 +136,8 @@ mod tests {
         assert!(rendered.contains("## Tool Policy Boundary"));
         assert!(rendered.contains("Agent: orchestrator"));
         assert!(rendered.contains("Allowed tools: read_notes"));
-        assert!(rendered.contains("Blocked tools: write_notes"));
+        assert!(rendered.contains("Restricted tools: 1 omitted by policy"));
+        assert!(!rendered.contains("write_notes"));
     }
 
     #[test]

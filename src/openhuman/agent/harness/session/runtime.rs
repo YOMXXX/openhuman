@@ -197,6 +197,7 @@ impl Agent {
             .unwrap_or("0");
         self.session_key = format!("{prefix}_{sanitized}");
         self.agent_definition_name = name;
+        self.rebuild_tool_policy_session();
     }
 
     /// Attach a progress event sender for real-time turn updates.
@@ -212,8 +213,8 @@ impl Agent {
     }
 
     /// Restrict which tools the main agent can see and call for this
-    /// session. An empty set restores the default "all visible"
-    /// behavior.
+    /// session. An empty set restores the default "all visible" behavior,
+    /// still subject to the configured channel permission policy.
     pub fn set_visible_tool_names(&mut self, names: HashSet<String>) {
         self.visible_tool_names = names;
         self.rebuild_tool_policy_session();

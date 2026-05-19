@@ -32,9 +32,9 @@ pub struct Agent {
     /// Full tool specs — sub-agents receive these via
     /// [`ParentExecutionContext::all_tool_specs`].
     pub(super) tool_specs: Arc<Vec<ToolSpec>>,
-    /// Tool specs filtered by `visible_tool_names`. These are the specs
-    /// actually sent to the provider in the main agent's chat requests.
-    /// When `visible_tool_names` is empty this equals `tool_specs`.
+    /// Tool specs filtered by the visible-tool allowlist and session
+    /// permission policy. These are the specs actually sent to the
+    /// provider in the main agent's chat requests.
     pub(super) visible_tool_specs: Arc<Vec<ToolSpec>>,
     /// When non-empty, only these tool names are visible in the main
     /// agent's prompt and callable by the main agent. Sub-agents ignore
