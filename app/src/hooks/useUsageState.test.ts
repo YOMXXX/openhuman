@@ -273,11 +273,7 @@ describe('useUsageState', () => {
     mockLoadAISettings.mockResolvedValue({
       cloudProviders: [],
       routing: {
-        chat: {
-          kind: 'cloud',
-          providerSlug: 'openrouter',
-          model: 'anthropic/claude-sonnet-4.6',
-        },
+        chat: { kind: 'cloud', providerSlug: 'openrouter', model: 'anthropic/claude-sonnet-4.6' },
         reasoning: {
           kind: 'cloud',
           providerSlug: 'openrouter',
