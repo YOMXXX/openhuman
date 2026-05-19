@@ -165,23 +165,24 @@ impl Tool for ComposioActionTool {
         // of mode — silently breaking direct mode for tool execution.
         // [#1710 Wave 4] Reload config fresh per execute so a mid-session
         // `composio.mode` toggle takes effect at the very next tool call.
-        // The Arc<Config> snapshot held by `self` was taken at agent-init
-        // time and is otherwise stale relative to subsequent set_api_key /
-        // clear_api_key RPCs.
-        let live_config = match config_rpc::load_config_with_timeout().await {
-            Ok(c) => c,
-            Err(e) => {
-                tracing::warn!(
-                    tool = %self.action_name,
-                    error = %e,
-                    "[composio] per-action execute: load_config failed"
-                );
-                return Ok(ToolResult::error(format!(
-                    "{}: failed to load live config: {e}",
-                    self.action_name
-                )));
-            }
-        };
+        // Anchor the reload to this tool's original config path rather
+        // than re-resolving process-global `OPENHUMAN_WORKSPACE`; the
+        // tool is scoped to the user/workspace it was created for.
+        let live_config =
+            match config_rpc::reload_config_snapshot_with_timeout(self.config.as_ref()).await {
+                Ok(c) => c,
+                Err(e) => {
+                    tracing::warn!(
+                        tool = %self.action_name,
+                        error = %e,
+                        "[composio] per-action execute: load_config failed"
+                    );
+                    return Ok(ToolResult::error(format!(
+                        "{}: failed to load live config: {e}",
+                        self.action_name
+                    )));
+                }
+            };
         let kind = match create_composio_client(&live_config) {
             Ok(kind) => kind,
             Err(e) => {
@@ -279,11 +280,10 @@ mod tests {
     }
 
     // Direct-mode coverage no longer constructs an `Arc<Config>` helper:
-    // `ComposioActionTool::execute` reloads config via
-    // `load_config_with_timeout()` per call (#1710 Wave 4), so direct-
-    // mode tests persist an isolated `config.toml` under `TEST_ENV_LOCK`
-    // (see `factory_routes_through_direct_when_mode_is_direct`) rather
-    // than injecting one through the constructor.
+    // `ComposioActionTool::execute` reloads config from the tool
+    // snapshot's `config_path` per call (#1710 Wave 4), so direct-mode
+    // tests persist an isolated `config.toml` and pass that config into
+    // the constructor.
 
     fn error_text(result: &ToolResult) -> String {
         result
@@ -343,11 +343,9 @@ mod tests {
         // but never with the sandbox text.
         //
         // The sandbox gate is a no-op here, so dispatch falls through to
-        // `load_config_with_timeout()` (#1710 Wave 4). Hold
-        // `TEST_ENV_LOCK` and point `OPENHUMAN_WORKSPACE` at an
-        // isolated, persisted config so this test neither reads the
-        // dev's real config nor races the shared env var against the
-        // other config-loading composio tests.
+        // the live config reload (#1710 Wave 4). Hold `TEST_ENV_LOCK`
+        // and point `OPENHUMAN_WORKSPACE` at an isolated, persisted
+        // config for compatibility with sibling config-loading tests.
         use crate::openhuman::config::TEST_ENV_LOCK;
         let _env_guard = TEST_ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
 
@@ -447,23 +445,33 @@ mod tests {
         // sandbox, but the error must come from the direct path, not
         // a backend session lookup.
         //
-        // Production `.execute(..)` calls `load_config_with_timeout()`
-        // per call which reads from disk — see the matching note on
-        // `factory_routes_through_backend_when_mode_is_backend`.
+        // Production `.execute(..)` reloads from the tool snapshot's
+        // `config_path` per call. Point the process-global
+        // `OPENHUMAN_WORKSPACE` at a separate backend-mode config to
+        // prove this path does not accidentally follow a concurrent env
+        // mutation back to the backend branch.
         use crate::openhuman::config::TEST_ENV_LOCK;
         let _env_guard = TEST_ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
 
-        let tmp = tempfile::tempdir().expect("tempdir");
-        unsafe {
-            std::env::set_var("OPENHUMAN_WORKSPACE", tmp.path());
-        }
-
+        let tmp = tempfile::tempdir().expect("tempdir direct");
         let mut config = Config::default();
         config.config_path = tmp.path().join("config.toml");
         config.workspace_dir = tmp.path().join("workspace");
         config.composio.mode = crate::openhuman::config::schema::COMPOSIO_MODE_DIRECT.to_string();
         config.composio.api_key = Some("test-direct-key".to_string());
         config.save().await.expect("save fake config to disk");
+
+        let tmp_backend = tempfile::tempdir().expect("tempdir backend");
+        let mut backend_config = Config::default();
+        backend_config.config_path = tmp_backend.path().join("config.toml");
+        backend_config.workspace_dir = tmp_backend.path().join("workspace");
+        backend_config
+            .save()
+            .await
+            .expect("save backend config to disk");
+        unsafe {
+            std::env::set_var("OPENHUMAN_WORKSPACE", tmp_backend.path());
+        }
 
         let tool = ComposioActionTool::new(
             Arc::new(config),
@@ -498,7 +506,8 @@ mod tests {
         // each routes through its respective branch. This captures the
         // core structural property — that no client is baked at
         // construction time — and is faithful to production because
-        // `.execute(..)` calls `load_config_with_timeout()` per call.
+        // `.execute(..)` reloads from the tool snapshot's `config_path`
+        // per call.
         //
         // The actual in-place mutation flow on the live system is:
         // RPC `composio.set_mode` writes config.toml, the
