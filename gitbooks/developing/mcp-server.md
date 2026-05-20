@@ -16,6 +16,19 @@ The command does not start the HTTP JSON-RPC server. It reads newline-delimited
 JSON-RPC 2.0 messages from stdin and writes MCP responses to stdout. Logs go to
 stderr; add `--verbose` for debug output.
 
+## Client Provenance
+
+During `initialize`, the MCP server captures `params.clientInfo.name` for the
+stdio session. The name is normalized as `trim -> lowercase -> collapse
+non-ASCII-alphanumeric runs to - -> trim -`; examples include `Claude Desktop`
+as `claude-desktop`, `Cursor` as `cursor`, and `Windsurf` as `windsurf`.
+
+If the client omits `clientInfo.name`, sends an empty value, or sends a name
+that normalizes to nothing, the session falls back to the bare `mcp` source
+label. Write-capable MCP tools should use this session source label for memory
+provenance so old clients keep the existing `mcp` behavior and identifiable
+clients can write as `mcp:<client>`.
+
 ## Tools
 
 The MCP surface is deliberately read-only and routes through the existing

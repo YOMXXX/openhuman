@@ -4,6 +4,7 @@
 //! protocol messages to stdout. Diagnostics go through stderr logging.
 
 mod protocol;
+mod session;
 mod stdio;
 mod tools;
 
