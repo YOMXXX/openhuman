@@ -55,6 +55,10 @@ describe('desktopDeepLinkListener', () => {
     vi.mocked(isTauri).mockReturnValue(true);
     vi.mocked(getCurrent).mockResolvedValue(null);
     vi.mocked(onOpenUrl).mockResolvedValue(() => {});
+    waitForOAuthAuthReadiness.mockReset();
+    waitForOAuthAuthReadiness.mockResolvedValue({ ready: true });
+    vi.mocked(storeSession).mockReset();
+    vi.mocked(storeSession).mockResolvedValue(undefined);
     windowControls.show.mockClear();
     windowControls.unminimize.mockClear();
     windowControls.setFocus.mockClear();
@@ -141,6 +145,34 @@ describe('desktopDeepLinkListener', () => {
     const state = getDeepLinkAuthState();
     expect(state.requiresAppDataReset).toBe(false);
     expect(state.errorMessage).toBe('Sign-in failed. Please try again.');
+  });
+
+  it('does not make the E2E deep-link helper wait for auth readiness', async () => {
+    let resolveReadiness!: (_value: { ready: true }) => void;
+    waitForOAuthAuthReadiness.mockReturnValueOnce(
+      new Promise<{ ready: true }>(resolve => {
+        resolveReadiness = resolve;
+      })
+    );
+
+    await setupDesktopDeepLinkListener();
+
+    const simulateDeepLink = (
+      window as Window & { __simulateDeepLink?: (url: string) => Promise<void> }
+    ).__simulateDeepLink;
+
+    expect(simulateDeepLink).toBeTypeOf('function');
+    await expect(simulateDeepLink!('openhuman://auth?token=abc&key=auth')).resolves.toBeUndefined();
+    expect(storeSession).not.toHaveBeenCalled();
+
+    await new Promise(resolve => setTimeout(resolve, 0));
+    expect(waitForOAuthAuthReadiness).toHaveBeenCalledTimes(1);
+
+    resolveReadiness({ ready: true });
+    await waitForAuthSettled();
+
+    expect(storeSession).toHaveBeenCalledWith('abc', {});
+    expect(getDeepLinkAuthState().isProcessing).toBe(false);
   });
 
   it('sanitizes provider and error code values from OAuth error deep links', async () => {

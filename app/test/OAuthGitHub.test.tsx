@@ -21,17 +21,29 @@ import { renderWithProviders } from '../src/test/test-utils';
 // Module mocks
 // ---------------------------------------------------------------------------
 
-const { mockGetBackendUrl, mockOpenUrl, mockIsTauri } = vi.hoisted(() => ({
-  mockGetBackendUrl: vi.fn(),
-  mockOpenUrl: vi.fn(),
-  mockIsTauri: vi.fn(),
-}));
+const { mockGetBackendUrl, mockOpenUrl, mockIsTauri, mockPrepareOAuthLoginLaunch } = vi.hoisted(
+  () => ({
+    mockGetBackendUrl: vi.fn(),
+    mockOpenUrl: vi.fn(),
+    mockIsTauri: vi.fn(),
+    mockPrepareOAuthLoginLaunch: vi.fn(),
+  })
+);
 
 vi.mock('../src/services/backendUrl', () => ({ getBackendUrl: mockGetBackendUrl }));
 vi.mock('../src/utils/openUrl', () => ({ openUrl: mockOpenUrl }));
 vi.mock('../src/utils/tauriCommands', async importOriginal => {
   const actual = await importOriginal<Record<string, unknown>>();
   return { ...actual, isTauri: mockIsTauri };
+});
+vi.mock('../src/utils/oauthAppVersionGate', async importOriginal => {
+  const actual = await importOriginal<Record<string, unknown>>();
+  return { ...actual, prepareOAuthLoginLaunch: mockPrepareOAuthLoginLaunch };
+});
+
+beforeEach(() => {
+  mockPrepareOAuthLoginLaunch.mockReset();
+  mockPrepareOAuthLoginLaunch.mockResolvedValue(undefined);
 });
 
 // ---------------------------------------------------------------------------
