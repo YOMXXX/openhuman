@@ -26,6 +26,8 @@ const TREE_BROWSE_ARGUMENTS: &[&str] = &[
 ];
 const TREE_TOP_ENTITIES_ARGUMENTS: &[&str] = &["kind", "k"];
 const TREE_LIST_SOURCES_ARGUMENTS: &[&str] = &["user_email_hint"];
+const MEMORY_STORE_ARGUMENTS: &[&str] = &["title", "content", "namespace", "tags"];
+const MEMORY_NOTE_ARGUMENTS: &[&str] = &["chunk_id", "note_text"];
 
 #[derive(Debug, Clone)]
 pub struct McpToolSpec {
@@ -187,6 +189,24 @@ fn base_tool_specs() -> Vec<McpToolSpec> {
             rpc_method: Some("openhuman.memory_tree_list_sources"),
             input_schema: tree_list_sources_schema(),
         },
+        McpToolSpec {
+            name: "memory.store",
+            title: "Store Memory",
+            description: "Create a new memory document from content. The document is stored in \
+                          the specified namespace (default `mcp`) and can be retrieved via \
+                          `memory.search` or `memory.recall`.",
+            rpc_method: Some("openhuman.memory_doc_put"),
+            input_schema: memory_store_schema(),
+        },
+        McpToolSpec {
+            name: "memory.note",
+            title: "Annotate Memory Chunk",
+            description: "Append a note to an existing memory chunk by storing a linked annotation \
+                          document. The note references the original chunk_id for provenance and \
+                          can be retrieved alongside it.",
+            rpc_method: Some("openhuman.memory_doc_put"),
+            input_schema: memory_note_schema(),
+        },
     ]
 }
 
@@ -287,6 +307,56 @@ fn tree_list_sources_schema() -> Value {
     })
 }
 
+fn memory_store_schema() -> Value {
+    json!({
+        "type": "object",
+        "properties": {
+            "title": {
+                "type": "string",
+                "minLength": 1,
+                "description": "Human-readable title for the memory document."
+            },
+            "content": {
+                "type": "string",
+                "minLength": 1,
+                "description": "The text content to store as a memory document."
+            },
+            "namespace": {
+                "type": "string",
+                "minLength": 1,
+                "description": "Namespace to store the document in. Defaults to `mcp` when omitted."
+            },
+            "tags": {
+                "type": "array",
+                "items": { "type": "string" },
+                "description": "Optional tags for categorisation and filtering."
+            }
+        },
+        "required": ["title", "content"],
+        "additionalProperties": false
+    })
+}
+
+fn memory_note_schema() -> Value {
+    json!({
+        "type": "object",
+        "properties": {
+            "chunk_id": {
+                "type": "string",
+                "minLength": 1,
+                "description": "ID of the memory chunk to annotate. Use an ID from memory.search or memory.recall results."
+            },
+            "note_text": {
+                "type": "string",
+                "minLength": 1,
+                "description": "The note text to attach to the chunk."
+            }
+        },
+        "required": ["chunk_id", "note_text"],
+        "additionalProperties": false
+    })
+}
+
 fn searxng_search_schema() -> Value {
     json!({
         "type": "object",
@@ -382,6 +452,11 @@ pub async fn call_tool(name: &str, arguments: Value) -> Result<Value, ToolCallEr
         "agent.run_subagent" => {
             enforce_act_policy(spec.name).await?;
             return run_subagent_tool(&params).await;
+        }
+        "memory.store" | "memory.note" => {
+            enforce_write_policy(spec.name).await?;
+            validate_controller_params(&spec, &params)?;
+            return dispatch_write_tool(spec.name, &params).await;
         }
         _ => {}
     }
@@ -562,6 +637,46 @@ fn build_rpc_params(
             if let Some(value) = optional_non_empty_string(&args, "user_email_hint")? {
                 params.insert("user_email_hint".to_string(), Value::String(value));
             }
+            Ok(params)
+        }
+        "memory.store" => {
+            reject_unexpected_arguments(&args, MEMORY_STORE_ARGUMENTS)?;
+            let title = required_non_empty_string(&args, "title")?;
+            let content = required_non_empty_string(&args, "content")?;
+            let namespace =
+                optional_non_empty_string(&args, "namespace")?.unwrap_or_else(|| "mcp".to_string());
+            // Generate a deterministic key from the title for upsert dedup.
+            let key = format!("mcp-store-{}", slug_from(&title));
+            let mut params = Map::new();
+            params.insert("namespace".to_string(), Value::String(namespace));
+            params.insert("key".to_string(), Value::String(key));
+            params.insert("title".to_string(), Value::String(title));
+            params.insert("content".to_string(), Value::String(content));
+            params.insert("source_type".to_string(), Value::String("mcp".to_string()));
+            if let Some(tags) = optional_string_array(&args, "tags")? {
+                params.insert(
+                    "tags".to_string(),
+                    Value::Array(tags.into_iter().map(Value::String).collect()),
+                );
+            }
+            Ok(params)
+        }
+        "memory.note" => {
+            reject_unexpected_arguments(&args, MEMORY_NOTE_ARGUMENTS)?;
+            let chunk_id = required_non_empty_string(&args, "chunk_id")?;
+            let note_text = required_non_empty_string(&args, "note_text")?;
+            let key = format!("mcp-note-{chunk_id}");
+            let title = format!("Note on chunk {chunk_id}");
+            let content = format!("[annotation for chunk_id={chunk_id}]\n\n{note_text}");
+            let mut metadata = Map::new();
+            metadata.insert("annotates_chunk_id".to_string(), Value::String(chunk_id));
+            let mut params = Map::new();
+            params.insert("namespace".to_string(), Value::String("mcp".to_string()));
+            params.insert("key".to_string(), Value::String(key));
+            params.insert("title".to_string(), Value::String(title));
+            params.insert("content".to_string(), Value::String(content));
+            params.insert("source_type".to_string(), Value::String("mcp".to_string()));
+            params.insert("metadata".to_string(), Value::Object(metadata));
             Ok(params)
         }
         _ => Err(ToolCallError::InvalidParams(format!(
@@ -827,6 +942,78 @@ async fn enforce_act_policy(tool_name: &str) -> Result<(), ToolCallError> {
         .map_err(ToolCallError::InvalidParams)
 }
 
+/// Write operations use the same gate as Act — they are side-effecting and
+/// must not run in read-only mode. The separate function gives us a distinct
+/// log line so auditors can tell reads from writes at a glance.
+async fn enforce_write_policy(tool_name: &str) -> Result<(), ToolCallError> {
+    let config = match config_rpc::load_config_with_timeout().await {
+        Ok(config) => config,
+        Err(err) => {
+            log::warn!(
+                "[mcp_server] enforce_write_policy config load failed tool={tool_name} error={err}"
+            );
+            return Err(ToolCallError::Internal(format!(
+                "failed to load config: {err}"
+            )));
+        }
+    };
+    let policy = SecurityPolicy::from_config(&config.autonomy, &config.workspace_dir);
+    policy
+        .enforce_tool_operation(ToolOperation::Act, tool_name)
+        .map_err(ToolCallError::InvalidParams)
+}
+
+/// Dispatch a write tool to its underlying RPC method with provenance and
+/// audit logging.
+async fn dispatch_write_tool(
+    tool_name: &str,
+    params: &Map<String, Value>,
+) -> Result<Value, ToolCallError> {
+    let rpc_method = "openhuman.memory_doc_put";
+
+    tracing::info!(
+        tool = tool_name,
+        rpc_method = rpc_method,
+        client = "mcp",
+        "[mcp_server] write dispatch"
+    );
+
+    match all::try_invoke_registered_rpc(rpc_method, params.clone()).await {
+        Some(Ok(value)) => {
+            let document_id = value
+                .get("document_id")
+                .and_then(Value::as_str)
+                .unwrap_or("<unknown>");
+            tracing::info!(
+                tool = tool_name,
+                chunk_id = document_id,
+                client = "mcp",
+                "[mcp_server] write success"
+            );
+            Ok(tool_success(value))
+        }
+        Some(Err(message)) => {
+            log::warn!(
+                "[mcp_server] write handler error tool={} error={}",
+                tool_name,
+                message
+            );
+            Ok(tool_error(format!("{} failed: {message}", tool_name)))
+        }
+        None => {
+            log::error!(
+                "[mcp_server] write mapping missing registered RPC method tool={} rpc_method={}",
+                tool_name,
+                rpc_method
+            );
+            Ok(tool_error(format!(
+                "{} is unavailable: mapped RPC method `{}` is not registered",
+                tool_name, rpc_method
+            )))
+        }
+    }
+}
+
 async fn load_config_and_init_registry() -> Result<crate::openhuman::config::Config, ToolCallError>
 {
     let config = config_rpc::load_config_with_timeout()
@@ -987,6 +1174,47 @@ fn tool_error(message: String) -> Value {
     })
 }
 
+/// Produce a URL-safe slug from a title for use as a document key.
+/// Lowercases, replaces non-alphanumeric runs with a single hyphen, and
+/// truncates at 64 characters.
+fn slug_from(title: &str) -> String {
+    let slug: String = title
+        .chars()
+        .map(|c| {
+            if c.is_ascii_alphanumeric() {
+                c.to_ascii_lowercase()
+            } else {
+                '-'
+            }
+        })
+        .collect();
+    // Collapse runs of hyphens, trim leading/trailing.
+    let mut result = String::with_capacity(slug.len());
+    let mut prev_hyphen = true; // treat start as hyphen to trim leading
+    for ch in slug.chars() {
+        if ch == '-' {
+            if !prev_hyphen {
+                result.push('-');
+            }
+            prev_hyphen = true;
+        } else {
+            result.push(ch);
+            prev_hyphen = false;
+        }
+    }
+    // Trim trailing hyphen
+    while result.ends_with('-') {
+        result.pop();
+    }
+    if result.len() > 64 {
+        result.truncate(64);
+        while result.ends_with('-') {
+            result.pop();
+        }
+    }
+    result
+}
+
 fn json_type_name(value: &Value) -> &'static str {
     match value {
         Value::Null => "null",
@@ -1026,6 +1254,8 @@ mod tests {
                 "tree.browse",
                 "tree.top_entities",
                 "tree.list_sources",
+                "memory.store",
+                "memory.note",
             ]
         );
     }
@@ -1402,5 +1632,127 @@ mod tests {
         let err = build_rpc_params("tree.list_sources", json!({ "limit": 5 }))
             .expect_err("list_sources takes no pagination");
         assert!(err.message().contains("unexpected argument `limit`"));
+    }
+
+    // ── memory.store ──────────────────────────────────────────────────
+
+    #[test]
+    fn memory_store_requires_title_and_content() {
+        let err = build_rpc_params("memory.store", json!({})).expect_err("must reject");
+        assert!(err.message().contains("missing required argument `title`"));
+
+        let err =
+            build_rpc_params("memory.store", json!({ "title": "T" })).expect_err("must reject");
+        assert!(err
+            .message()
+            .contains("missing required argument `content`"));
+    }
+
+    #[test]
+    fn memory_store_defaults_namespace_to_mcp() {
+        let params = build_rpc_params(
+            "memory.store",
+            json!({ "title": "My note", "content": "Hello world" }),
+        )
+        .expect("params");
+
+        assert_eq!(params["namespace"], "mcp");
+        assert_eq!(params["title"], "My note");
+        assert_eq!(params["content"], "Hello world");
+        assert_eq!(params["source_type"], "mcp");
+        assert!(params["key"].as_str().unwrap().starts_with("mcp-store-"));
+    }
+
+    #[test]
+    fn memory_store_accepts_custom_namespace_and_tags() {
+        let params = build_rpc_params(
+            "memory.store",
+            json!({
+                "title": "Project Plan",
+                "content": "Q3 milestones",
+                "namespace": "work",
+                "tags": ["project", "planning"]
+            }),
+        )
+        .expect("params");
+
+        assert_eq!(params["namespace"], "work");
+        assert_eq!(params["tags"], json!(["project", "planning"]));
+    }
+
+    #[test]
+    fn memory_store_rejects_unknown_argument() {
+        let err = build_rpc_params(
+            "memory.store",
+            json!({ "title": "T", "content": "C", "priority": "high" }),
+        )
+        .expect_err("must reject");
+        assert!(err.message().contains("unexpected argument `priority`"));
+    }
+
+    // ── memory.note ───────────────────────────────────────────────────
+
+    #[test]
+    fn memory_note_requires_chunk_id_and_note_text() {
+        let err = build_rpc_params("memory.note", json!({})).expect_err("must reject");
+        assert!(err
+            .message()
+            .contains("missing required argument `chunk_id`"));
+
+        let err =
+            build_rpc_params("memory.note", json!({ "chunk_id": "abc" })).expect_err("must reject");
+        assert!(err
+            .message()
+            .contains("missing required argument `note_text`"));
+    }
+
+    #[test]
+    fn memory_note_builds_annotation_document() {
+        let params = build_rpc_params(
+            "memory.note",
+            json!({ "chunk_id": "chunk-42", "note_text": "Important context" }),
+        )
+        .expect("params");
+
+        assert_eq!(params["namespace"], "mcp");
+        assert_eq!(params["key"], "mcp-note-chunk-42");
+        assert!(params["title"].as_str().unwrap().contains("chunk-42"));
+        assert!(params["content"]
+            .as_str()
+            .unwrap()
+            .contains("Important context"));
+        assert!(params["content"]
+            .as_str()
+            .unwrap()
+            .contains("chunk_id=chunk-42"));
+        assert_eq!(params["metadata"]["annotates_chunk_id"], "chunk-42");
+        assert_eq!(params["source_type"], "mcp");
+    }
+
+    #[test]
+    fn memory_note_rejects_unknown_argument() {
+        let err = build_rpc_params(
+            "memory.note",
+            json!({ "chunk_id": "abc", "note_text": "N", "extra": true }),
+        )
+        .expect_err("must reject");
+        assert!(err.message().contains("unexpected argument `extra`"));
+    }
+
+    // ── slug_from ─────────────────────────────────────────────────────
+
+    #[test]
+    fn slug_from_produces_clean_slug() {
+        assert_eq!(slug_from("Hello World!"), "hello-world");
+        assert_eq!(slug_from("  spaces  "), "spaces");
+        assert_eq!(slug_from("CamelCase123"), "camelcase123");
+        assert_eq!(slug_from("a--b"), "a-b");
+    }
+
+    #[test]
+    fn slug_from_truncates_long_titles() {
+        let long = "a".repeat(100);
+        let slug = slug_from(&long);
+        assert!(slug.len() <= 64);
     }
 }
