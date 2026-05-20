@@ -160,6 +160,16 @@ const CAPABILITIES: &[Capability] = &[
         privacy: None,
     },
     Capability {
+        id: "conversation.subagent_mascots",
+        name: "Subagent Mascots",
+        domain: "conversation",
+        category: CapabilityCategory::Conversation,
+        description: "Show delegated sub-agents as colored companion mascots with compact activity bubbles and running, completed, or failed states.",
+        how_to: "Human > ask the assistant to delegate work to sub-agents",
+        status: CapabilityStatus::Beta,
+        privacy: None,
+    },
+    Capability {
         id: "conversation.label_filter",
         name: "Thread Label Filters",
         domain: "conversation",
@@ -407,6 +417,17 @@ const CAPABILITIES: &[Capability] = &[
         how_to: "Conversations > Ask the assistant to run an Apify actor",
         status: CapabilityStatus::Beta,
         privacy: None,
+    },
+    Capability {
+        id: "skills.tinyfish_web_automation",
+        name: "TinyFish Web Automation",
+        domain: "skills",
+        category: CapabilityCategory::Skills,
+        description:
+            "Search the web, render JavaScript-heavy pages, and run goal-based browser automations through TinyFish.",
+        how_to: "Conversations > Ask the assistant to search, fetch, or automate a website with TinyFish",
+        status: CapabilityStatus::Beta,
+        privacy: DERIVED_TO_BACKEND,
     },
     Capability {
         id: "skills.toggle_enabled",

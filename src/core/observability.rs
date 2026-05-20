@@ -464,6 +464,16 @@ fn is_provider_user_state_message(lower: &str) -> bool {
         return true;
     }
 
+    // OPENHUMAN-TAURI-S7: provider policy rejection on Kimi's coding
+    // endpoint when requests are not sent from an approved coding-agent
+    // client. Canonical body contains `access_terminated_error` and:
+    // "currently only available for Coding Agents ...".
+    if lower.contains("access_terminated_error")
+        || lower.contains("currently only available for coding agents")
+    {
+        return true;
+    }
+
     false
 }
 
@@ -1616,6 +1626,23 @@ mod tests {
     }
 
     #[test]
+    fn classifies_access_terminated_provider_policy_as_provider_user_state() {
+        assert_eq!(
+            expected_error_kind(
+                "custom_openai API error (403 Forbidden): {\"error\":{\"message\":\"Kimi For Coding is currently only available for Coding Agents such as Kimi CLI, Claude Code, Roo Code, Kilo Code, etc.\",\"type\":\"access_terminated_error\"}}"
+            ),
+            Some(ExpectedErrorKind::ProviderUserState)
+        );
+
+        assert_eq!(
+            expected_error_kind(
+                "agent turn failed: custom_openai API error (403): currently only available for coding agents"
+            ),
+            Some(ExpectedErrorKind::ProviderUserState)
+        );
+    }
+
+    #[test]
     fn does_not_classify_unrelated_500s_as_provider_user_state() {
         // Sanity check: a generic 500 with no provider-user-state body
         // shape must continue to reach Sentry as an actionable event.
@@ -1840,6 +1867,54 @@ mod tests {
                 expected_error_kind(raw),
                 Some(ExpectedErrorKind::SessionExpired),
                 "should classify as session-expired: {raw}"
+            );
+        }
+    }
+
+    /// OPENHUMAN-TAURI-SG (33 events, escalating, release `0.53.43+2b64ea8…`):
+    /// pre-#1763 leak of the `resolve_bearer` sentinel through
+    /// `agent.run_single`. PR #1763 (1fb0bef5) wired the `SessionExpired`
+    /// arm and the existing `classifies_session_expired_messages` test
+    /// covers the same byte string — this test pins the *Sentry-event
+    /// verbatim* shape (taken from the OPENHUMAN-TAURI-SG event payload)
+    /// so a future tweak to `is_session_expired_message` cannot regress
+    /// this exact wire form without a red test.
+    #[test]
+    fn session_expired_sg_wire_shape_matches() {
+        let msg = "SESSION_EXPIRED: backend session not active — sign in to resume LLM work";
+        assert_eq!(
+            expected_error_kind(msg),
+            Some(ExpectedErrorKind::SessionExpired),
+            "OPENHUMAN-TAURI-SG wire shape must classify as SessionExpired — \
+             a regression here re-leaks 33+ events/cycle to Sentry"
+        );
+    }
+
+    /// The two sibling `SESSION_EXPIRED:` bail sites in
+    /// `providers::factory::verify_session_active` emit different message
+    /// suffixes but the same sentinel prefix. They route through the same
+    /// classifier as the run_single bail at
+    /// `providers::openhuman_backend::resolve_bearer`, and any matcher
+    /// tweak that breaks the family (e.g. moving from `contains` to a
+    /// stricter prefix/suffix match) would re-leak ALL of them. Pin every
+    /// variant the codebase actually emits so a future regression on the
+    /// matcher is caught for the whole family, not just the SG instance.
+    #[test]
+    fn session_expired_sibling_family_factory_strings_match() {
+        // src/openhuman/inference/provider/factory.rs:247
+        // (verify_session_active — scheduler_gate signed-out path)
+        let custom_providers_variant =
+            "SESSION_EXPIRED: backend session not active — sign in to use custom providers";
+        // src/openhuman/inference/provider/factory.rs:266
+        // (verify_session_active — empty auth-profile JWT path)
+        let no_backend_session_variant =
+            "SESSION_EXPIRED: no backend session — sign in to use OpenHuman";
+
+        for raw in [custom_providers_variant, no_backend_session_variant] {
+            assert_eq!(
+                expected_error_kind(raw),
+                Some(ExpectedErrorKind::SessionExpired),
+                "factory.rs sibling sentinel must classify as SessionExpired: {raw}"
             );
         }
     }
