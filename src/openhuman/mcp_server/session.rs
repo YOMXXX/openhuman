@@ -9,14 +9,22 @@ pub(crate) struct McpSession {
 
 impl McpSession {
     pub(crate) fn observe_initialize_params(&mut self, params: &Value) {
-        self.client_source_type = params
+        if self.client_source_type.is_some() {
+            return;
+        }
+
+        let Some(normalized_name) = params
             .as_object()
             .and_then(|obj| obj.get("clientInfo"))
             .and_then(Value::as_object)
             .and_then(|client_info| client_info.get("name"))
             .and_then(Value::as_str)
             .and_then(Self::normalize_client_name)
-            .map(|name| format!("{DEFAULT_SOURCE_TYPE}:{name}"));
+        else {
+            return;
+        };
+
+        self.client_source_type = Some(format!("{DEFAULT_SOURCE_TYPE}:{normalized_name}"));
     }
 
     pub(crate) fn source_type(&self) -> &str {

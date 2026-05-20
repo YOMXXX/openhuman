@@ -451,6 +451,41 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn initialize_does_not_clear_existing_source_type_when_later_name_is_missing() {
+        let mut session = McpSession::default();
+        let _ = request_with_session(
+            json!({
+                "jsonrpc": "2.0",
+                "id": 1,
+                "method": "initialize",
+                "params": {
+                    "protocolVersion": "2025-06-18",
+                    "capabilities": {},
+                    "clientInfo": {"name": "Claude Desktop", "version": "0"}
+                }
+            }),
+            &mut session,
+        )
+        .await;
+
+        let _ = request_with_session(
+            json!({
+                "jsonrpc": "2.0",
+                "id": 2,
+                "method": "initialize",
+                "params": {
+                    "protocolVersion": "2025-06-18",
+                    "capabilities": {}
+                }
+            }),
+            &mut session,
+        )
+        .await;
+
+        assert_eq!(session.source_type(), "mcp:claude-desktop");
+    }
+
+    #[tokio::test]
     async fn tools_list_returns_first_level_core_tools() {
         let response = request(json!({
             "jsonrpc": "2.0",
