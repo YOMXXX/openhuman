@@ -1214,13 +1214,23 @@ fn slug_from(title: &str) -> String {
 
     // Append a stable hash when non-ASCII characters were dropped, so that
     // titles differing only in their non-ASCII parts produce distinct slugs.
+    // The hash suffix is "-<8 hex chars>" = 9 chars; we reserve space for it
+    // during truncation so it's never clipped.
     if had_non_ascii {
         use sha2::{Digest, Sha256};
-        let hash = hex::encode(&Sha256::digest(title.as_bytes())[..4]);
+        let hash = hex::encode(&Sha256::digest(title.as_bytes())[..4]); // 8 hex chars
         if result.is_empty() {
             return format!("untitled-{hash}");
         }
-        result = format!("{result}-{hash}");
+        // Truncate the base slug to leave room for "-{hash}" (9 chars).
+        let max_base = 64usize.saturating_sub(1 + hash.len()); // 55
+        if result.len() > max_base {
+            result.truncate(max_base);
+            while result.ends_with('-') {
+                result.pop();
+            }
+        }
+        return format!("{result}-{hash}");
     }
 
     if result.is_empty() {
@@ -1830,5 +1840,34 @@ mod tests {
 
         // Pure ASCII title has no hash suffix
         assert_eq!(pure_ascii, "report-2026");
+    }
+
+    #[test]
+    fn slug_from_long_mixed_script_preserves_hash() {
+        // A long ASCII base with a non-ASCII suffix: the hash must not be
+        // truncated even when the base exceeds 55 chars (64 - 9 for "-<hash>").
+        let long_ascii = "a]".repeat(40); // 80 chars of ASCII after slugging
+        let title_a = format!("{long_ascii} 会议");
+        let title_b = format!("{long_ascii} Заметка");
+        let slug_a = slug_from(&title_a);
+        let slug_b = slug_from(&title_b);
+        // Both must fit in 64 chars
+        assert!(
+            slug_a.len() <= 64,
+            "slug too long: {} ({} chars)",
+            slug_a,
+            slug_a.len()
+        );
+        assert!(
+            slug_b.len() <= 64,
+            "slug too long: {} ({} chars)",
+            slug_b,
+            slug_b.len()
+        );
+        // Both must end with a hash suffix (not truncated)
+        assert!(slug_a.contains('-'), "no hash separator: {slug_a}");
+        assert!(slug_b.contains('-'), "no hash separator: {slug_b}");
+        // Must be distinct despite identical ASCII base
+        assert_ne!(slug_a, slug_b, "long mixed-script collision");
     }
 }
