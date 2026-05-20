@@ -425,13 +425,15 @@ describe('configPersistence', () => {
         E2E_DEFAULT_CORE_MODE: 'local',
       }));
 
-      localStorage.removeItem(MODE_STORAGE_KEY);
-      const mod = await import('../configPersistence');
+      try {
+        localStorage.removeItem(MODE_STORAGE_KEY);
+        const mod = await import('../configPersistence');
 
-      expect(mod.getStoredCoreMode()).toBe('local');
-
-      vi.doUnmock('../config');
-      vi.resetModules();
+        expect(mod.getStoredCoreMode()).toBe('local');
+      } finally {
+        vi.doUnmock('../config');
+        vi.resetModules();
+      }
     });
   });
 });
