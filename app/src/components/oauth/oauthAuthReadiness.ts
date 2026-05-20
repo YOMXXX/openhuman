@@ -13,10 +13,7 @@ const warnLog = debug('oauth:auth-readiness:warn');
 const DEFAULT_MAX_WAIT_MS = 30_000;
 const POLL_MS = 200;
 
-export type OAuthAuthReadinessFailure =
-  | 'core_mode_unset'
-  | 'core_unreachable'
-  | 'bootstrap_timeout';
+export type OAuthAuthReadinessFailure = 'core_mode_unset' | 'core_unreachable';
 
 export type OAuthAuthReadinessResult =
   | { ready: true }
@@ -55,12 +52,14 @@ async function ensureLocalCoreProcessStarted(): Promise<void> {
 
 /**
  * Block OAuth sign-in until the BootCheckGate has committed a core mode,
- * the embedded core answers `core.ping`, and CoreStateProvider has finished
- * its first bootstrap pass (or already holds a session).
+ * and the embedded core answers `core.ping`.
  *
  * First-launch sign-in often failed with a generic "Sign-in failed" because
  * the deep-link handler only waited ~1.5s while `isBootstrapping` stayed true
  * behind the runtime picker, then called RPC against a core that was not up yet.
+ * The login callback itself can proceed before CoreStateProvider completes its
+ * first snapshot refresh; requiring that UI bootstrap here deadlocks some E2E
+ * and first-login paths where the callback is what creates the session.
  */
 export async function waitForOAuthAuthReadiness(
   maxWaitMs = DEFAULT_MAX_WAIT_MS
@@ -86,9 +85,7 @@ export async function waitForOAuthAuthReadiness(
 
   while (Date.now() < deadline) {
     const coreState = getCoreStateSnapshot();
-    const bootstrapReady = !coreState.isBootstrapping || Boolean(coreState.snapshot.sessionToken);
-
-    if (bootstrapReady && (await pingCoreRpc())) {
+    if (await pingCoreRpc()) {
       log(`${logPrefix} ready`, {
         authBootstrapComplete: !coreState.isBootstrapping,
         hasSessionToken: Boolean(coreState.snapshot.sessionToken),
@@ -105,8 +102,7 @@ export async function waitForOAuthAuthReadiness(
     return { ready: false, reason: 'core_unreachable' };
   }
 
-  warnLog(`${logPrefix} auth bootstrap still in flight after ${maxWaitMs}ms`);
-  return { ready: false, reason: 'bootstrap_timeout' };
+  return { ready: true };
 }
 
 export function oauthAuthReadinessUserMessage(reason: OAuthAuthReadinessFailure): string {
@@ -121,7 +117,6 @@ export function oauthAuthReadinessUserMessage(reason: OAuthAuthReadinessFailure)
         'OpenHuman could not reach its local runtime. Quit and reopen the app, ' +
         'then try signing in again.'
       );
-    case 'bootstrap_timeout':
     default:
       return 'Sign-in is still starting up. Wait a few seconds and try again.';
   }

@@ -58,7 +58,7 @@ describe('oauthAuthReadiness', () => {
     expect(oauthAuthReadinessUserMessage('core_mode_unset')).toMatch(/setup screen/i);
   });
 
-  it('returns ready when core mode, bootstrap, and ping are satisfied', async () => {
+  it('returns ready when core mode and ping are satisfied', async () => {
     const result = await waitForOAuthAuthReadiness(2_000);
 
     expect(result).toEqual({ ready: true });
@@ -74,44 +74,25 @@ describe('oauthAuthReadiness', () => {
     expect(result).toEqual({ ready: false, reason: 'core_unreachable' });
   });
 
-  it('waits for bootstrap to finish before returning ready', async () => {
-    vi.mocked(getCoreStateSnapshot)
-      .mockReturnValueOnce({
-        isBootstrapping: true,
-        isReady: false,
-        snapshot: {
-          sessionToken: null,
-          auth: { isAuthenticated: false, userId: null, user: null, profileId: null },
-          currentUser: null,
-          onboardingCompleted: false,
-          chatOnboardingCompleted: false,
-          analyticsEnabled: false,
-          meetAutoOrchestratorHandoff: false,
-          localState: { encryptionKey: null, onboardingTasks: null },
-          runtime: { screenIntelligence: null, localAi: null, autocomplete: null, service: null },
-        },
-        teams: [],
-        teamMembersById: {},
-        teamInvitesById: {},
-      })
-      .mockReturnValue({
-        isBootstrapping: false,
-        isReady: true,
-        snapshot: {
-          sessionToken: null,
-          auth: { isAuthenticated: false, userId: null, user: null, profileId: null },
-          currentUser: null,
-          onboardingCompleted: false,
-          chatOnboardingCompleted: false,
-          analyticsEnabled: false,
-          meetAutoOrchestratorHandoff: false,
-          localState: { encryptionKey: null, onboardingTasks: null },
-          runtime: { screenIntelligence: null, localAi: null, autocomplete: null, service: null },
-        },
-        teams: [],
-        teamMembersById: {},
-        teamInvitesById: {},
-      });
+  it('does not block first-login callbacks on CoreStateProvider bootstrap once ping succeeds', async () => {
+    vi.mocked(getCoreStateSnapshot).mockReturnValue({
+      isBootstrapping: true,
+      isReady: false,
+      snapshot: {
+        sessionToken: null,
+        auth: { isAuthenticated: false, userId: null, user: null, profileId: null },
+        currentUser: null,
+        onboardingCompleted: false,
+        chatOnboardingCompleted: false,
+        analyticsEnabled: false,
+        meetAutoOrchestratorHandoff: false,
+        localState: { encryptionKey: null, onboardingTasks: null },
+        runtime: { screenIntelligence: null, localAi: null, autocomplete: null, service: null },
+      },
+      teams: [],
+      teamMembersById: {},
+      teamInvitesById: {},
+    });
 
     const result = await waitForOAuthAuthReadiness(3_000);
 
