@@ -177,9 +177,10 @@ async fn handle_request(id: Value, method: &str, params: Value, session: &mut Mc
                 match tools::call_tool(&name, arguments).await {
                     Ok(result) => {
                         log::debug!(
-                            "[mcp_server] tools/call response id={} tool={} is_error={}",
+                            "[mcp_server] tools/call response id={} tool={} client_source_type={} is_error={}",
                             request_id,
                             name,
+                            session.source_type(),
                             result
                                 .get("isError")
                                 .and_then(Value::as_bool)
@@ -194,9 +195,10 @@ async fn handle_request(id: Value, method: &str, params: Value, session: &mut Mc
                         // (`Internal`) surface as `-32603` so clients don't
                         // mis-attribute them to the caller's arguments.
                         log::debug!(
-                            "[mcp_server] tools/call rejected id={} tool={} code={} error={}",
+                            "[mcp_server] tools/call rejected id={} tool={} client_source_type={} code={} error={}",
                             request_id,
                             name,
+                            session.source_type(),
                             err.code(),
                             err.message()
                         );
@@ -211,8 +213,9 @@ async fn handle_request(id: Value, method: &str, params: Value, session: &mut Mc
             }
             Err(message) => {
                 log::debug!(
-                    "[mcp_server] tools/call params rejected id={} error={message}",
-                    request_id
+                    "[mcp_server] tools/call params rejected id={} client_source_type={} error={message}",
+                    request_id,
+                    session.source_type()
                 );
                 error_response(id, -32602, "Invalid params", Some(json!(message)))
             }
@@ -495,6 +498,41 @@ mod tests {
         .await;
 
         assert_eq!(session.source_type(), "mcp:claude-desktop");
+    }
+
+    #[tokio::test]
+    async fn initialize_freezes_bare_source_type_when_first_client_info_is_missing() {
+        let mut session = McpSession::default();
+        let _ = request_with_session(
+            json!({
+                "jsonrpc": "2.0",
+                "id": 1,
+                "method": "initialize",
+                "params": {
+                    "protocolVersion": "2025-06-18",
+                    "capabilities": {}
+                }
+            }),
+            &mut session,
+        )
+        .await;
+
+        let _ = request_with_session(
+            json!({
+                "jsonrpc": "2.0",
+                "id": 2,
+                "method": "initialize",
+                "params": {
+                    "protocolVersion": "2025-06-18",
+                    "capabilities": {},
+                    "clientInfo": {"name": "Claude Desktop", "version": "0"}
+                }
+            }),
+            &mut session,
+        )
+        .await;
+
+        assert_eq!(session.source_type(), "mcp");
     }
 
     #[tokio::test]

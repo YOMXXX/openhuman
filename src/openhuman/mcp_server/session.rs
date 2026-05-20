@@ -27,9 +27,11 @@ impl McpSession {
             .and_then(Self::normalize_client_name)
         else {
             log::trace!(
-                "[mcp_server] initialize provenance not captured param_keys={:?}",
+                "[mcp_server] initialize provenance fallback locked client_source_type={} param_keys={:?}",
+                DEFAULT_SOURCE_TYPE,
                 object_keys(params)
             );
+            self.client_source_type = Some(DEFAULT_SOURCE_TYPE.to_string());
             return;
         };
 
