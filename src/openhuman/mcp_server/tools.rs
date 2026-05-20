@@ -1212,6 +1212,10 @@ fn slug_from(title: &str) -> String {
             result.pop();
         }
     }
+    if result.is_empty() {
+        // Fallback for titles with no alphanumeric characters.
+        return "untitled".to_string();
+    }
     result
 }
 
@@ -1754,5 +1758,13 @@ mod tests {
         let long = "a".repeat(100);
         let slug = slug_from(&long);
         assert!(slug.len() <= 64);
+    }
+
+    #[test]
+    fn slug_from_returns_fallback_for_non_alphanumeric_titles() {
+        assert_eq!(slug_from("!!!"), "untitled");
+        assert_eq!(slug_from("@@@"), "untitled");
+        assert_eq!(slug_from("---"), "untitled");
+        assert_eq!(slug_from(""), "untitled");
     }
 }
