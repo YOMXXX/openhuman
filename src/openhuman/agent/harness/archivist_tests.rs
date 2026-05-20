@@ -281,6 +281,8 @@ async fn phase0_episodic_rows_and_segment_without_learning_enabled() {
         tool_calls: vec![],
         turn_duration_ms: 100,
         session_id: Some(session.into()),
+        agent_id: None,
+        entrypoint: None,
         iteration_count: 1,
     })
     .await
@@ -310,6 +312,8 @@ async fn phase0_episodic_rows_and_segment_without_learning_enabled() {
         tool_calls: vec![],
         turn_duration_ms: 100,
         session_id: Some(session.into()),
+        agent_id: None,
+        entrypoint: None,
         iteration_count: 2,
     })
     .await
@@ -391,6 +395,8 @@ async fn phase1_llm_recap_and_embedding_on_segment_close() {
         tool_calls: vec![],
         turn_duration_ms: 100,
         session_id: Some(session.into()),
+        agent_id: None,
+        entrypoint: None,
         iteration_count: 1,
     })
     .await
@@ -403,6 +409,8 @@ async fn phase1_llm_recap_and_embedding_on_segment_close() {
         tool_calls: vec![],
         turn_duration_ms: 100,
         session_id: Some(session.into()),
+        agent_id: None,
+        entrypoint: None,
         iteration_count: 2,
     })
     .await
@@ -415,6 +423,8 @@ async fn phase1_llm_recap_and_embedding_on_segment_close() {
         tool_calls: vec![],
         turn_duration_ms: 100,
         session_id: Some(session.into()),
+        agent_id: None,
+        entrypoint: None,
         iteration_count: 3,
     })
     .await
@@ -481,6 +491,8 @@ async fn phase1_flush_open_segment_finalizes_trailing_segment() {
             tool_calls: vec![],
             turn_duration_ms: 50,
             session_id: Some(session.into()),
+            agent_id: None,
+            entrypoint: None,
             iteration_count: i,
         })
         .await
@@ -580,6 +592,8 @@ async fn phase2_no_per_turn_tree_write() {
         tool_calls: vec![],
         turn_duration_ms: 100,
         session_id: Some(session.into()),
+        agent_id: None,
+        entrypoint: None,
         iteration_count: 1,
     })
     .await
@@ -617,6 +631,8 @@ async fn phase2_exactly_one_tree_ingest_per_segment_close() {
         tool_calls: vec![],
         turn_duration_ms: 100,
         session_id: Some(session.into()),
+        agent_id: None,
+        entrypoint: None,
         iteration_count: 1,
     })
     .await
@@ -629,6 +645,8 @@ async fn phase2_exactly_one_tree_ingest_per_segment_close() {
         tool_calls: vec![],
         turn_duration_ms: 100,
         session_id: Some(session.into()),
+        agent_id: None,
+        entrypoint: None,
         iteration_count: 2,
     })
     .await
@@ -649,6 +667,8 @@ async fn phase2_exactly_one_tree_ingest_per_segment_close() {
         tool_calls: vec![],
         turn_duration_ms: 100,
         session_id: Some(session.into()),
+        agent_id: None,
+        entrypoint: None,
         iteration_count: 3,
     })
     .await
@@ -699,6 +719,8 @@ async fn phase2_provenance_stamped_on_leaf_and_source_id_is_constant() {
             tool_calls: vec![],
             turn_duration_ms: 50,
             session_id: Some(session.into()),
+            agent_id: None,
+            entrypoint: None,
             iteration_count: i,
         })
         .await
@@ -785,6 +807,8 @@ async fn phase2_ingested_content_is_raw_prose_not_recap() {
         tool_calls: vec![],
         turn_duration_ms: 100,
         session_id: Some(session.into()),
+        agent_id: None,
+        entrypoint: None,
         iteration_count: 1,
     })
     .await
@@ -842,6 +866,8 @@ async fn phase2_flush_also_triggers_tree_ingest() {
             tool_calls: vec![],
             turn_duration_ms: 50,
             session_id: Some(session.into()),
+            agent_id: None,
+            entrypoint: None,
             iteration_count: i,
         })
         .await
