@@ -1213,8 +1213,12 @@ fn slug_from(title: &str) -> String {
         }
     }
     if result.is_empty() {
-        // Fallback for titles with no alphanumeric characters.
-        return "untitled".to_string();
+        // Fallback for titles with no ASCII-alphanumeric characters (e.g.
+        // Unicode-only titles like "会议记录" or "Протокол"). Use a short
+        // stable hash of the original title to ensure distinct slugs.
+        use sha2::{Digest, Sha256};
+        let hash = hex::encode(&Sha256::digest(title.as_bytes())[..8]);
+        return format!("untitled-{hash}");
     }
     result
 }
@@ -1761,10 +1765,36 @@ mod tests {
     }
 
     #[test]
-    fn slug_from_returns_fallback_for_non_alphanumeric_titles() {
-        assert_eq!(slug_from("!!!"), "untitled");
-        assert_eq!(slug_from("@@@"), "untitled");
-        assert_eq!(slug_from("---"), "untitled");
-        assert_eq!(slug_from(""), "untitled");
+    fn slug_from_returns_hash_fallback_for_non_alphanumeric_titles() {
+        // Non-alphanumeric titles should produce "untitled-<hash>" with a
+        // stable, deterministic hash suffix.
+        let slug_bang = slug_from("!!!");
+        let slug_at = slug_from("@@@");
+        assert!(slug_bang.starts_with("untitled-"), "got: {slug_bang}");
+        assert!(slug_at.starts_with("untitled-"), "got: {slug_at}");
+        // Different inputs → different slugs
+        assert_ne!(slug_bang, slug_at);
+        // Empty title also gets a fallback
+        assert!(slug_from("").starts_with("untitled-"));
+        // Stable across calls
+        assert_eq!(slug_from("!!!"), slug_bang);
+    }
+
+    #[test]
+    fn slug_from_unicode_only_titles_are_unique_and_stable() {
+        let chinese = slug_from("会议记录");
+        let russian = slug_from("Протокол");
+        let emoji = slug_from("🦀🚀");
+        // All produce hash-based fallbacks
+        assert!(chinese.starts_with("untitled-"), "got: {chinese}");
+        assert!(russian.starts_with("untitled-"), "got: {russian}");
+        assert!(emoji.starts_with("untitled-"), "got: {emoji}");
+        // All distinct
+        assert_ne!(chinese, russian);
+        assert_ne!(chinese, emoji);
+        assert_ne!(russian, emoji);
+        // Stable
+        assert_eq!(slug_from("会议记录"), chinese);
+        assert_eq!(slug_from("Протокол"), russian);
     }
 }
