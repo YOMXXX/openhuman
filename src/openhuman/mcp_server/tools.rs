@@ -1176,8 +1176,13 @@ fn tool_error(message: String) -> Value {
 
 /// Produce a URL-safe slug from a title for use as a document key.
 /// Lowercases, replaces non-alphanumeric runs with a single hyphen, and
-/// truncates at 64 characters.
+/// truncates at 64 characters. When the title contains non-ASCII characters
+/// that were dropped during normalization, a short stable hash is appended
+/// to prevent collisions between titles that share the same ASCII fragment
+/// (e.g. "会议记录 2026" vs "Протокол 2026" both normalize to "2026").
 fn slug_from(title: &str) -> String {
+    let had_non_ascii = title.chars().any(|c| !c.is_ascii());
+
     let slug: String = title
         .chars()
         .map(|c| {
@@ -1206,19 +1211,30 @@ fn slug_from(title: &str) -> String {
     while result.ends_with('-') {
         result.pop();
     }
+
+    // Append a stable hash when non-ASCII characters were dropped, so that
+    // titles differing only in their non-ASCII parts produce distinct slugs.
+    if had_non_ascii {
+        use sha2::{Digest, Sha256};
+        let hash = hex::encode(&Sha256::digest(title.as_bytes())[..4]);
+        if result.is_empty() {
+            return format!("untitled-{hash}");
+        }
+        result = format!("{result}-{hash}");
+    }
+
+    if result.is_empty() {
+        // Pure-ASCII non-alphanumeric title (e.g. "!!!" or "---").
+        use sha2::{Digest, Sha256};
+        let hash = hex::encode(&Sha256::digest(title.as_bytes())[..4]);
+        return format!("untitled-{hash}");
+    }
+
     if result.len() > 64 {
         result.truncate(64);
         while result.ends_with('-') {
             result.pop();
         }
-    }
-    if result.is_empty() {
-        // Fallback for titles with no ASCII-alphanumeric characters (e.g.
-        // Unicode-only titles like "会议记录" or "Протокол"). Use a short
-        // stable hash of the original title to ensure distinct slugs.
-        use sha2::{Digest, Sha256};
-        let hash = hex::encode(&Sha256::digest(title.as_bytes())[..8]);
-        return format!("untitled-{hash}");
     }
     result
 }
@@ -1796,5 +1812,23 @@ mod tests {
         // Stable
         assert_eq!(slug_from("会议记录"), chinese);
         assert_eq!(slug_from("Протокол"), russian);
+    }
+
+    #[test]
+    fn slug_from_mixed_script_titles_with_same_ascii_are_distinct() {
+        // Both titles share the ASCII fragment "2026" but differ in their
+        // non-ASCII prefix. Without hash disambiguation they'd both slug
+        // to just "2026" and collide.
+        let chinese = slug_from("会议记录 2026");
+        let russian = slug_from("Протокол 2026");
+        let pure_ascii = slug_from("report 2026");
+
+        // Mixed-script slugs include a hash suffix
+        assert!(chinese.contains("2026"), "got: {chinese}");
+        assert!(russian.contains("2026"), "got: {russian}");
+        assert_ne!(chinese, russian, "mixed-script collision");
+
+        // Pure ASCII title has no hash suffix
+        assert_eq!(pure_ascii, "report-2026");
     }
 }
