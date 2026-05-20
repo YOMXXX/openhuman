@@ -5,7 +5,11 @@ import { bootCheckTransport } from '../../../services/bootCheckService';
 import { testCoreRpcConnection } from '../../../services/coreRpcClient';
 import { isTauri } from '../../../services/webviewAccountService';
 import { getStoredCoreMode } from '../../../utils/configPersistence';
-import { oauthAuthReadinessUserMessage, waitForOAuthAuthReadiness } from '../oauthAuthReadiness';
+import {
+  oauthAuthReadinessUserMessage,
+  prepareOAuthLoginLaunch,
+  waitForOAuthAuthReadiness,
+} from '../oauthAuthReadiness';
 
 vi.mock('../../../lib/coreState/store', () => ({ getCoreStateSnapshot: vi.fn() }));
 
@@ -47,6 +51,7 @@ describe('oauthAuthReadiness', () => {
       teamInvitesById: {},
     });
     vi.mocked(testCoreRpcConnection).mockResolvedValue({ ok: true } as Response);
+    vi.mocked(isTauri).mockReturnValue(true);
   });
 
   it('returns core_mode_unset when BootCheckGate has not committed a mode', async () => {
@@ -105,5 +110,29 @@ describe('oauthAuthReadiness', () => {
     await waitForOAuthAuthReadiness(1_000);
 
     expect(bootCheckTransport.invokeCmd).not.toHaveBeenCalled();
+  });
+
+  it('starts the local core only once during pre-launch readiness', async () => {
+    await prepareOAuthLoginLaunch();
+
+    expect(bootCheckTransport.invokeCmd).toHaveBeenCalledTimes(1);
+    expect(bootCheckTransport.invokeCmd).toHaveBeenCalledWith('start_core_process', {});
+  });
+
+  it('rejects with the readiness message when pre-launch core readiness fails', async () => {
+    vi.useFakeTimers();
+    vi.mocked(testCoreRpcConnection).mockResolvedValue({ ok: false } as Response);
+
+    try {
+      const launch = expect(prepareOAuthLoginLaunch()).rejects.toThrow(
+        oauthAuthReadinessUserMessage('core_unreachable')
+      );
+
+      await vi.advanceTimersByTimeAsync(8_000);
+
+      await launch;
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

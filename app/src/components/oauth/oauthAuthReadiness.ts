@@ -124,13 +124,13 @@ export function oauthAuthReadinessUserMessage(reason: OAuthAuthReadinessFailure)
 
 /**
  * Lightweight preflight before opening the system browser for OAuth.
- * Marks the Welcome screen as busy immediately and ensures the local core
- * process has been asked to start when running in local mode.
+ * Blocks browser launch when the local auth runtime is not ready yet.
+ * `waitForOAuthAuthReadiness()` starts the local core when needed.
  */
 export async function prepareOAuthLoginLaunch(): Promise<void> {
-  await ensureLocalCoreProcessStarted();
   const quick = await waitForOAuthAuthReadiness(8_000);
   if (!quick.ready) {
     warnLog(`${logPrefix} pre-launch readiness`, quick);
+    throw new Error(oauthAuthReadinessUserMessage(quick.reason));
   }
 }
