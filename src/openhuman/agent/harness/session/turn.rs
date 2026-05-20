@@ -738,7 +738,12 @@ impl Agent {
                             assistant_response: final_text.clone(),
                             tool_calls: all_tool_records,
                             turn_duration_ms: turn_started.elapsed().as_millis() as u64,
-                            session_id: None,
+                            session_id: Some(self.event_session_id.clone())
+                                .filter(|session_id| !session_id.trim().is_empty()),
+                            agent_id: Some(self.agent_definition_id.clone())
+                                .filter(|agent_id| !agent_id.trim().is_empty()),
+                            entrypoint: Some(self.event_channel.clone())
+                                .filter(|entrypoint| !entrypoint.trim().is_empty()),
                             iteration_count: iteration + 1,
                         };
                         hooks::fire_hooks(&self.post_turn_hooks, ctx);

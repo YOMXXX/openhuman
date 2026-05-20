@@ -22,6 +22,8 @@ async fn archivist_indexes_turn() {
         tool_calls: vec![],
         turn_duration_ms: 500,
         session_id: Some("test-session".into()),
+        agent_id: None,
+        entrypoint: None,
         iteration_count: 1,
     };
 
@@ -44,6 +46,8 @@ async fn archivist_creates_segment_on_first_turn() {
         tool_calls: vec![],
         turn_duration_ms: 100,
         session_id: Some("seg-test".into()),
+        agent_id: None,
+        entrypoint: None,
         iteration_count: 1,
     };
 
@@ -65,6 +69,8 @@ async fn archivist_detects_topic_change_boundary() {
         tool_calls: vec![],
         turn_duration_ms: 100,
         session_id: Some("boundary-test".into()),
+        agent_id: None,
+        entrypoint: None,
         iteration_count: 1,
     })
     .await
@@ -76,6 +82,8 @@ async fn archivist_detects_topic_change_boundary() {
         tool_calls: vec![],
         turn_duration_ms: 100,
         session_id: Some("boundary-test".into()),
+        agent_id: None,
+        entrypoint: None,
         iteration_count: 2,
     })
     .await
@@ -87,6 +95,8 @@ async fn archivist_detects_topic_change_boundary() {
         tool_calls: vec![],
         turn_duration_ms: 100,
         session_id: Some("boundary-test".into()),
+        agent_id: None,
+        entrypoint: None,
         iteration_count: 3,
     })
     .await
@@ -117,6 +127,8 @@ async fn archivist_extracts_failure_lesson() {
         }],
         turn_duration_ms: 3500,
         session_id: Some("test-session-2".into()),
+        agent_id: None,
+        entrypoint: None,
         iteration_count: 2,
     };
 
@@ -136,6 +148,8 @@ async fn disabled_archivist_is_noop() {
         tool_calls: vec![],
         turn_duration_ms: 0,
         session_id: None,
+        agent_id: None,
+        entrypoint: None,
         iteration_count: 0,
     };
     hook.on_turn_complete(&ctx).await.unwrap();
@@ -162,6 +176,8 @@ async fn archivist_accumulates_turns_in_segment() {
             tool_calls: vec![],
             turn_duration_ms: 50,
             session_id: Some(session.into()),
+            agent_id: None,
+            entrypoint: None,
             iteration_count: i,
         })
         .await
@@ -192,6 +208,8 @@ async fn archivist_extracts_preference_event_on_boundary() {
         tool_calls: vec![],
         turn_duration_ms: 100,
         session_id: Some(session.into()),
+        agent_id: None,
+        entrypoint: None,
         iteration_count: 1,
     })
     .await
@@ -203,6 +221,8 @@ async fn archivist_extracts_preference_event_on_boundary() {
         tool_calls: vec![],
         turn_duration_ms: 100,
         session_id: Some(session.into()),
+        agent_id: None,
+        entrypoint: None,
         iteration_count: 2,
     })
     .await
@@ -214,6 +234,8 @@ async fn archivist_extracts_preference_event_on_boundary() {
         tool_calls: vec![],
         turn_duration_ms: 100,
         session_id: Some(session.into()),
+        agent_id: None,
+        entrypoint: None,
         iteration_count: 3,
     })
     .await

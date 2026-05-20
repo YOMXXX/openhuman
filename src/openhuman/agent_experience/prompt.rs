@@ -23,11 +23,7 @@ pub fn render_experience_hits(hits: &[ExperienceHit], max_bytes: usize) -> Strin
 
     for (index, hit) in hits.iter().enumerate() {
         let item = render_hit(hit, index + 1);
-        let separator = if rendered == AGENT_EXPERIENCE_HEADING {
-            "\n"
-        } else {
-            "\n"
-        };
+        let separator = "\n";
         let candidate_len = rendered.len() + separator.len() + item.len();
 
         if candidate_len <= max_bytes {

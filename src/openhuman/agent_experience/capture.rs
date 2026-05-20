@@ -95,6 +95,8 @@ fn successful_multi_tool_experience(ctx: &TurnContext) -> Option<AgentExperience
         now,
         ExperienceOutcome::Success,
         None,
+        ctx.agent_id.clone(),
+        ctx.entrypoint.clone(),
         summary,
         sequence,
         lesson,
@@ -139,6 +141,8 @@ fn repeated_failure_experiences(ctx: &TurnContext) -> Vec<AgentExperience> {
                 now,
                 ExperienceOutcome::Failure,
                 error_class,
+                ctx.agent_id.clone(),
+                ctx.entrypoint.clone(),
                 summary,
                 vec![tool.clone()],
                 lesson,
@@ -178,6 +182,8 @@ fn partial_success_experience(ctx: &TurnContext) -> Option<AgentExperience> {
         now,
         ExperienceOutcome::Partial,
         None,
+        ctx.agent_id.clone(),
+        ctx.entrypoint.clone(),
         summary,
         sequence,
         lesson,
@@ -192,6 +198,8 @@ fn build_experience(
     now: i64,
     outcome: ExperienceOutcome,
     error_class: Option<String>,
+    agent_id: Option<String>,
+    entrypoint: Option<String>,
     task_summary: String,
     tool_sequence: Vec<String>,
     lesson: String,
@@ -207,8 +215,8 @@ fn build_experience(
         created_at_ms: now,
         updated_at_ms: now,
         source: ExperienceSource::ToolLoop,
-        agent_id: None,
-        entrypoint: None,
+        agent_id: clean_optional(agent_id),
+        entrypoint: clean_optional(entrypoint),
         task_fingerprint: stable_task_fingerprint(&task_summary),
         task_summary,
         tools_used,
@@ -223,6 +231,12 @@ fn build_experience(
         payload_hash: None,
         dismissed: false,
     }
+}
+
+fn clean_optional(value: Option<String>) -> Option<String> {
+    value
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty())
 }
 
 fn tool_sequence(calls: &[&ToolCallRecord]) -> Vec<String> {
@@ -281,6 +295,8 @@ mod tests {
             tool_calls,
             turn_duration_ms: 1200,
             session_id: Some("session-1".into()),
+            agent_id: Some("orchestrator".into()),
+            entrypoint: Some("web_channel".into()),
             iteration_count: 2,
         }
     }
@@ -307,6 +323,8 @@ mod tests {
         assert_eq!(candidates.len(), 1);
         assert_eq!(candidates[0].outcome, ExperienceOutcome::Success);
         assert_eq!(candidates[0].tool_sequence, vec!["grep", "file_read"]);
+        assert_eq!(candidates[0].agent_id.as_deref(), Some("orchestrator"));
+        assert_eq!(candidates[0].entrypoint.as_deref(), Some("web_channel"));
         assert!(candidates[0].lesson.contains("grep -> file_read"));
         assert!(candidates[0].tags.contains(&"multi-tool-success".into()));
     }
@@ -350,5 +368,7 @@ mod tests {
         let stored = store.list().await.unwrap();
         assert_eq!(stored.len(), 1);
         assert_eq!(stored[0].outcome, ExperienceOutcome::Success);
+        assert_eq!(stored[0].agent_id.as_deref(), Some("orchestrator"));
+        assert_eq!(stored[0].entrypoint.as_deref(), Some("web_channel"));
     }
 }
