@@ -3,8 +3,8 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { getCoreStateSnapshot } from '../../../lib/coreState/store';
 import { bootCheckTransport } from '../../../services/bootCheckService';
 import { testCoreRpcConnection } from '../../../services/coreRpcClient';
+import { isTauri } from '../../../services/webviewAccountService';
 import { getStoredCoreMode } from '../../../utils/configPersistence';
-import { isTauri } from '../../../utils/tauriCommands/common';
 import { oauthAuthReadinessUserMessage, waitForOAuthAuthReadiness } from '../oauthAuthReadiness';
 
 vi.mock('../../../lib/coreState/store', () => ({ getCoreStateSnapshot: vi.fn() }));
@@ -20,7 +20,9 @@ vi.mock('../../../services/bootCheckService', () => ({
 
 vi.mock('../../../utils/configPersistence', () => ({ getStoredCoreMode: vi.fn() }));
 
-vi.mock('../../../utils/tauriCommands/common', () => ({ isTauri: vi.fn().mockReturnValue(true) }));
+vi.mock('../../../services/webviewAccountService', () => ({
+  isTauri: vi.fn().mockReturnValue(true),
+}));
 
 describe('oauthAuthReadiness', () => {
   beforeEach(() => {

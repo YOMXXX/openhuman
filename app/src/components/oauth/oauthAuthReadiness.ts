@@ -1,10 +1,14 @@
+import debug from 'debug';
+
 import { getCoreStateSnapshot } from '../../lib/coreState/store';
 import { bootCheckTransport } from '../../services/bootCheckService';
 import { getCoreRpcUrl, testCoreRpcConnection } from '../../services/coreRpcClient';
+import { isTauri } from '../../services/webviewAccountService';
 import { getStoredCoreMode } from '../../utils/configPersistence';
-import { isTauri } from '../../utils/tauriCommands/common';
 
 const logPrefix = '[oauth-auth-readiness]';
+const log = debug('oauth:auth-readiness');
+const warnLog = debug('oauth:auth-readiness:warn');
 
 const DEFAULT_MAX_WAIT_MS = 30_000;
 const POLL_MS = 200;
@@ -29,7 +33,7 @@ async function pingCoreRpc(): Promise<boolean> {
     const response = await testCoreRpcConnection(rpcUrl);
     return response.ok;
   } catch (err) {
-    console.debug(`${logPrefix} core.ping probe failed`, err);
+    log(`${logPrefix} core.ping probe failed`, err);
     return false;
   }
 }
@@ -43,9 +47,9 @@ async function ensureLocalCoreProcessStarted(): Promise<void> {
   }
   try {
     await bootCheckTransport.invokeCmd('start_core_process', {});
-    console.debug(`${logPrefix} start_core_process invoked`);
+    log(`${logPrefix} start_core_process invoked`);
   } catch (err) {
-    console.debug(`${logPrefix} start_core_process skipped or failed`, err);
+    log(`${logPrefix} start_core_process skipped or failed`, err);
   }
 }
 
@@ -74,7 +78,7 @@ export async function waitForOAuthAuthReadiness(
   }
 
   if (!sawCoreMode) {
-    console.warn(`${logPrefix} timed out waiting for core mode selection`);
+    warnLog(`${logPrefix} timed out waiting for core mode selection`);
     return { ready: false, reason: 'core_mode_unset' };
   }
 
@@ -85,7 +89,7 @@ export async function waitForOAuthAuthReadiness(
     const bootstrapReady = !coreState.isBootstrapping || Boolean(coreState.snapshot.sessionToken);
 
     if (bootstrapReady && (await pingCoreRpc())) {
-      console.debug(`${logPrefix} ready`, {
+      log(`${logPrefix} ready`, {
         authBootstrapComplete: !coreState.isBootstrapping,
         hasSessionToken: Boolean(coreState.snapshot.sessionToken),
         coreMode: getStoredCoreMode(),
@@ -97,11 +101,11 @@ export async function waitForOAuthAuthReadiness(
   }
 
   if (!(await pingCoreRpc())) {
-    console.warn(`${logPrefix} core RPC unreachable after ${maxWaitMs}ms`);
+    warnLog(`${logPrefix} core RPC unreachable after ${maxWaitMs}ms`);
     return { ready: false, reason: 'core_unreachable' };
   }
 
-  console.warn(`${logPrefix} auth bootstrap still in flight after ${maxWaitMs}ms`);
+  warnLog(`${logPrefix} auth bootstrap still in flight after ${maxWaitMs}ms`);
   return { ready: false, reason: 'bootstrap_timeout' };
 }
 
@@ -132,6 +136,6 @@ export async function prepareOAuthLoginLaunch(): Promise<void> {
   await ensureLocalCoreProcessStarted();
   const quick = await waitForOAuthAuthReadiness(8_000);
   if (!quick.ready) {
-    console.warn(`${logPrefix} pre-launch readiness`, quick);
+    warnLog(`${logPrefix} pre-launch readiness`, quick);
   }
 }
