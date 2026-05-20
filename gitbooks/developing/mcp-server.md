@@ -19,9 +19,11 @@ stderr; add `--verbose` for debug output.
 ## Client Provenance
 
 During `initialize`, the MCP server captures `params.clientInfo.name` for the
-stdio session. The name is normalized as `trim -> lowercase -> collapse
-non-ASCII-alphanumeric runs to - -> trim -`; examples include `Claude Desktop`
-as `claude-desktop`, `Cursor` as `cursor`, and `Windsurf` as `windsurf`.
+stdio session. The name is normalized by trimming leading and trailing
+whitespace, converting to lowercase, replacing each sequence of
+non-ASCII-alphanumeric characters with a single hyphen, then trimming leading
+and trailing hyphens. For example, `Claude Desktop` becomes `claude-desktop`,
+`Cursor` becomes `cursor`, and `Windsurf` becomes `windsurf`.
 
 If the client omits `clientInfo.name`, sends an empty value, or sends a name
 that normalizes to nothing, the session falls back to the bare `mcp` source

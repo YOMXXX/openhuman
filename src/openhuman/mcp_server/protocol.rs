@@ -152,9 +152,15 @@ fn handle_notification(object: &Map<String, Value>) {
 }
 
 async fn handle_request(id: Value, method: &str, params: Value, session: &mut McpSession) -> Value {
+    let request_id = id.to_string();
     match method {
         "initialize" => {
             session.observe_initialize_params(&params);
+            log::debug!(
+                "[mcp_server] initialize request id={} client_source_type={}",
+                request_id,
+                session.source_type()
+            );
             success_response(id, initialize_result(params))
         }
         "ping" => success_response(id, json!({})),
@@ -162,7 +168,8 @@ async fn handle_request(id: Value, method: &str, params: Value, session: &mut Mc
         "tools/call" => match parse_tool_call_params(params) {
             Ok((name, arguments)) => {
                 log::debug!(
-                    "[mcp_server] tools/call request tool={} client_source_type={} arg_keys={:?}",
+                    "[mcp_server] tools/call request id={} tool={} client_source_type={} arg_keys={:?}",
+                    request_id,
                     name,
                     session.source_type(),
                     object_keys(&arguments)
@@ -170,7 +177,8 @@ async fn handle_request(id: Value, method: &str, params: Value, session: &mut Mc
                 match tools::call_tool(&name, arguments).await {
                     Ok(result) => {
                         log::debug!(
-                            "[mcp_server] tools/call response tool={} is_error={}",
+                            "[mcp_server] tools/call response id={} tool={} is_error={}",
+                            request_id,
                             name,
                             result
                                 .get("isError")
@@ -186,7 +194,8 @@ async fn handle_request(id: Value, method: &str, params: Value, session: &mut Mc
                         // (`Internal`) surface as `-32603` so clients don't
                         // mis-attribute them to the caller's arguments.
                         log::debug!(
-                            "[mcp_server] tools/call rejected tool={} code={} error={}",
+                            "[mcp_server] tools/call rejected id={} tool={} code={} error={}",
+                            request_id,
                             name,
                             err.code(),
                             err.message()
@@ -201,7 +210,10 @@ async fn handle_request(id: Value, method: &str, params: Value, session: &mut Mc
                 }
             }
             Err(message) => {
-                log::debug!("[mcp_server] tools/call params rejected error={message}");
+                log::debug!(
+                    "[mcp_server] tools/call params rejected id={} error={message}",
+                    request_id
+                );
                 error_response(id, -32602, "Invalid params", Some(json!(message)))
             }
         },

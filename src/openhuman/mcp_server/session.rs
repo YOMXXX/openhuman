@@ -9,7 +9,12 @@ pub(crate) struct McpSession {
 
 impl McpSession {
     pub(crate) fn observe_initialize_params(&mut self, params: &Value) {
-        if self.client_source_type.is_some() {
+        if let Some(client_source_type) = self.client_source_type.as_deref() {
+            log::trace!(
+                "[mcp_server] initialize provenance already captured client_source_type={} param_keys={:?}",
+                client_source_type,
+                object_keys(params)
+            );
             return;
         }
 
@@ -21,10 +26,21 @@ impl McpSession {
             .and_then(Value::as_str)
             .and_then(Self::normalize_client_name)
         else {
+            log::trace!(
+                "[mcp_server] initialize provenance not captured param_keys={:?}",
+                object_keys(params)
+            );
             return;
         };
 
-        self.client_source_type = Some(format!("{DEFAULT_SOURCE_TYPE}:{normalized_name}"));
+        let client_source_type = format!("{DEFAULT_SOURCE_TYPE}:{normalized_name}");
+        log::debug!(
+            "[mcp_server] initialize provenance captured base_source_type={} normalized_client_name={} client_source_type={}",
+            DEFAULT_SOURCE_TYPE,
+            normalized_name,
+            client_source_type
+        );
+        self.client_source_type = Some(client_source_type);
     }
 
     pub(crate) fn source_type(&self) -> &str {
@@ -57,4 +73,13 @@ impl McpSession {
             Some(normalized)
         }
     }
+}
+
+fn object_keys(value: &Value) -> Vec<String> {
+    let Some(object) = value.as_object() else {
+        return Vec::new();
+    };
+    let mut keys = object.keys().cloned().collect::<Vec<_>>();
+    keys.sort();
+    keys
 }
