@@ -1073,7 +1073,7 @@ impl Agent {
                 if block.is_empty() {
                     return enriched;
                 }
-                log::info!(
+                log::debug!(
                     "[agent-experience] injected {} experience hit(s) bytes={}",
                     matched_hits.len(),
                     block.len()
