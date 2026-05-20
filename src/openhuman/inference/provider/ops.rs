@@ -301,6 +301,43 @@ pub(super) fn is_budget_exhausted_http_400(status: reqwest::StatusCode, body: &s
     status == reqwest::StatusCode::BAD_REQUEST && super::is_budget_exhausted_message(body)
 }
 
+/// Whether a custom OpenAI-compatible proxy returned the known generic
+/// upstream 400 envelope:
+/// `{"error":{"message":"Bad request to upstream provider","type":"upstream_error","status":400}}`.
+///
+/// This shape is deterministic provider/user-state (endpoint-model mismatch,
+/// unsupported schema, provider-side validation) and does not provide
+/// actionable signal for OpenHuman Sentry triage.
+pub(super) fn is_custom_openai_upstream_bad_request_http_400(
+    provider: &str,
+    status: reqwest::StatusCode,
+    body: &str,
+) -> bool {
+    if provider != "custom_openai" || status != reqwest::StatusCode::BAD_REQUEST {
+        return false;
+    }
+    let lower = body.to_ascii_lowercase();
+    lower.contains("bad request to upstream provider") && lower.contains("upstream_error")
+}
+
+/// Whether a provider non-2xx response is a deterministic provider-policy
+/// denial (not a product bug) that should be demoted from Sentry.
+///
+/// Canonical example: Kimi's coding endpoint rejects non-agent clients with
+/// HTTP 403 + `access_terminated_error` and a message like:
+/// "currently only available for Coding Agents …".
+pub(super) fn is_provider_access_policy_denied_http_403(
+    status: reqwest::StatusCode,
+    body: &str,
+) -> bool {
+    if status != reqwest::StatusCode::FORBIDDEN {
+        return false;
+    }
+    let lower = body.to_ascii_lowercase();
+    lower.contains("access_terminated_error")
+        || lower.contains("currently only available for coding agents")
+}
+
 pub(super) fn log_budget_exhausted_http_400(
     operation: &str,
     provider: &str,
@@ -316,6 +353,43 @@ pub(super) fn log_budget_exhausted_http_400(
         failure = "non_2xx",
         kind = "budget",
         "[llm_provider] {operation} budget-exhausted 400 — not reporting to Sentry"
+    );
+}
+
+pub(super) fn log_custom_openai_upstream_bad_request_http_400(
+    operation: &str,
+    provider: &str,
+    model: Option<&str>,
+    status: reqwest::StatusCode,
+) {
+    tracing::info!(
+        domain = "llm_provider",
+        operation = operation,
+        provider = provider,
+        model = model.unwrap_or(""),
+        status = status.as_u16(),
+        failure = "non_2xx",
+        kind = "provider_user_state",
+        reason = "custom_openai_upstream_bad_request",
+        "[llm_provider] {operation} custom_openai upstream 400 — not reporting to Sentry"
+    );
+}
+
+pub(super) fn log_provider_access_policy_denied_http_403(
+    operation: &str,
+    provider: &str,
+    model: Option<&str>,
+    status: reqwest::StatusCode,
+) {
+    tracing::info!(
+        domain = "llm_provider",
+        operation = operation,
+        provider = provider,
+        model = model.unwrap_or(""),
+        status = status.as_u16(),
+        failure = "non_2xx",
+        kind = "provider_access_policy",
+        "[llm_provider] {operation} provider access-policy 403 — not reporting to Sentry"
     );
 }
 
@@ -397,6 +471,9 @@ pub async fn api_error(provider: &str, response: reqwest::Response) -> anyhow::E
     let is_auth_failure = matches!(status.as_u16(), 401 | 403);
     let is_backend = provider == openhuman_backend::PROVIDER_LABEL;
     let is_budget_exhausted_user_state = is_budget_exhausted_http_400(status, &body);
+    let is_custom_openai_upstream_bad_request =
+        is_custom_openai_upstream_bad_request_http_400(provider, status, &body);
+    let is_provider_access_policy_denied = is_provider_access_policy_denied_http_403(status, &body);
     let is_provider_config_rejection = is_provider_config_rejection_http(status, provider, &body);
 
     if is_auth_failure && is_backend {
@@ -420,6 +497,10 @@ pub async fn api_error(provider: &str, response: reqwest::Response) -> anyhow::E
         );
     } else if is_budget_exhausted_user_state {
         log_budget_exhausted_http_400("api_error", provider, None, status);
+    } else if is_custom_openai_upstream_bad_request {
+        log_custom_openai_upstream_bad_request_http_400("api_error", provider, None, status);
+    } else if is_provider_access_policy_denied {
+        log_provider_access_policy_denied_http_403("api_error", provider, None, status);
     } else if is_provider_config_rejection {
         log_provider_config_rejection("api_error", provider, None, status);
     } else if should_report_provider_http_failure(status) {
@@ -585,6 +666,10 @@ pub fn create_routed_provider_with_options(
                 router::Route {
                     provider_name: INFERENCE_BACKEND_ID.to_string(),
                     model: r.model.clone(),
+                    context_window:
+                        crate::openhuman::inference::model_context::context_window_for_model(
+                            &r.model,
+                        ),
                 },
             )
         })
@@ -666,6 +751,10 @@ pub fn create_intelligent_routing_provider(
                     router::Route {
                         provider_name: INFERENCE_BACKEND_ID.to_string(),
                         model: r.model.clone(),
+                        context_window:
+                            crate::openhuman::inference::model_context::context_window_for_model(
+                                &r.model,
+                            ),
                     },
                 )
             })
@@ -874,6 +963,37 @@ mod tests {
             assert!(!is_budget_exhausted_http_400(
                 reqwest::StatusCode::BAD_REQUEST,
                 "",
+            ));
+        }
+    }
+
+    mod provider_access_policy_suppression {
+        use super::*;
+
+        const ACCESS_TERMINATED_BODY: &str =
+            "{\"error\":{\"message\":\"Kimi For Coding is currently only available for Coding Agents.\",\"type\":\"access_terminated_error\"}}";
+
+        #[test]
+        fn access_terminated_403_is_suppressed() {
+            assert!(is_provider_access_policy_denied_http_403(
+                reqwest::StatusCode::FORBIDDEN,
+                ACCESS_TERMINATED_BODY,
+            ));
+        }
+
+        #[test]
+        fn access_terminated_non_403_is_not_suppressed() {
+            assert!(!is_provider_access_policy_denied_http_403(
+                reqwest::StatusCode::BAD_REQUEST,
+                ACCESS_TERMINATED_BODY,
+            ));
+        }
+
+        #[test]
+        fn unrelated_403_is_not_suppressed() {
+            assert!(!is_provider_access_policy_denied_http_403(
+                reqwest::StatusCode::FORBIDDEN,
+                "{\"error\":{\"message\":\"forbidden\"}}",
             ));
         }
     }

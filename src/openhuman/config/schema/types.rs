@@ -176,6 +176,9 @@ pub struct Config {
     pub seltz: SeltzConfig,
 
     #[serde(default)]
+    pub searxng: SearxngConfig,
+
+    #[serde(default)]
     pub web_search: WebSearchConfig,
 
     #[serde(default)]
@@ -204,6 +207,7 @@ pub struct Config {
     //                            build OpenAiCompatibleProvider with Bearer auth
     //   "anthropic:<model>"    → type=anthropic; Bearer auth on the compat endpoint
     //   "openrouter:<model>"   → type=openrouter; Bearer auth
+    //   "orcarouter:<model>"   → type=orcarouter; Bearer auth (e.g. "orcarouter:orcarouter/auto")
     //   "custom:<model>"       → type=custom; Bearer auth
     //   "ollama:<model>"       → local Ollama at config.local_ai.base_url
     //
@@ -548,6 +552,7 @@ impl Default for Config {
             mcp_client: McpClientConfig::default(),
             multimodal: MultimodalConfig::default(),
             seltz: SeltzConfig::default(),
+            searxng: SearxngConfig::default(),
             web_search: WebSearchConfig::default(),
             proxy: ProxyConfig::default(),
             cost: CostConfig::default(),

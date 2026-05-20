@@ -103,6 +103,7 @@ impl AgentBuilder {
             omit_profile: None,
             omit_memory_md: None,
             payload_summarizer: None,
+            tool_policy: None,
             archivist_hook: None,
             unified_compaction_enabled: true,
         }
@@ -342,6 +343,18 @@ impl AgentBuilder {
         self
     }
 
+    /// Installs pre-execution policy middleware for tool calls.
+    ///
+    /// The default policy allows all calls. Custom policies can deny a call
+    /// before `Tool::execute_with_options` runs.
+    pub fn tool_policy(
+        mut self,
+        policy: Arc<dyn crate::openhuman::agent::tool_policy::ToolPolicy>,
+    ) -> Self {
+        self.tool_policy = Some(policy);
+        self
+    }
+
     /// Attach the production [`ArchivistHook`] instance so the session
     /// turn loop can call [`ArchivistHook::flush_open_segment`] at
     /// session-wind-down time, guaranteeing the trailing open segment is
@@ -400,7 +413,7 @@ impl AgentBuilder {
             .agent_definition_name
             .clone()
             .unwrap_or_else(|| "main".to_string());
-        let tool_policy = ToolPolicyEngine::build_session(
+        let tool_policy_session = ToolPolicyEngine::build_session(
             &agent_definition_name,
             &event_channel,
             "session",
@@ -414,7 +427,7 @@ impl AgentBuilder {
         // channel permission policy must stay aligned so prompt-visible
         // tools cannot exceed the runtime execution boundary.
         let visible_tool_specs_unfiltered =
-            visible_tool_specs_for_policy(&tool_specs, &visible_names, &tool_policy);
+            visible_tool_specs_for_policy(&tool_specs, &visible_names, &tool_policy_session);
 
         // Dedupe by tool name. Anthropic (and other strict providers)
         // rejects a chat/completions request that lists two tools with
@@ -429,7 +442,7 @@ impl AgentBuilder {
             tool_specs.len(),
             visible_tool_specs.len(),
             !visible_names.is_empty(),
-            tool_policy.has_restrictions()
+            tool_policy_session.has_restrictions()
         );
 
         // Pull the provider out of the builder once. We store it on
@@ -512,7 +525,7 @@ impl AgentBuilder {
             tool_specs: Arc::new(tool_specs),
             visible_tool_specs: Arc::new(visible_tool_specs),
             visible_tool_names: visible_names,
-            tool_policy,
+            tool_policy_session,
             memory: self
                 .memory
                 .ok_or_else(|| anyhow::anyhow!("memory is required"))?,
@@ -575,6 +588,9 @@ impl AgentBuilder {
             omit_profile: self.omit_profile.unwrap_or(true),
             omit_memory_md: self.omit_memory_md.unwrap_or(true),
             payload_summarizer: self.payload_summarizer,
+            tool_policy: self.tool_policy.unwrap_or_else(|| {
+                Arc::new(crate::openhuman::agent::tool_policy::AllowAllToolPolicy)
+            }),
             last_seen_integrations_hash: 0,
             archivist_hook: self.archivist_hook,
             synthesized_tool_names: std::collections::HashSet::new(),
@@ -1144,6 +1160,16 @@ impl Agent {
                     crate::openhuman::memory::ToolMemoryCaptureHook::new(memory.clone(), true),
                 ));
                 log::info!("[learning] tool_memory_capture hook registered");
+            }
+
+            if config.learning.tool_memory_capture_enabled {
+                post_turn_hooks.push(Arc::new(
+                    crate::openhuman::agent_experience::AgentExperienceCaptureHook::new(
+                        memory.clone(),
+                        true,
+                    ),
+                ));
+                log::info!("[learning] agent_experience_capture hook registered");
             }
         }
 

@@ -221,7 +221,7 @@ impl Agent {
     }
 
     pub(super) fn rebuild_tool_policy_session(&mut self) {
-        self.tool_policy = ToolPolicyEngine::build_session(
+        self.tool_policy_session = ToolPolicyEngine::build_session(
             &self.agent_definition_name,
             &self.event_channel,
             "session",
@@ -232,7 +232,7 @@ impl Agent {
         let visible_specs = super::builder::visible_tool_specs_for_policy(
             self.tool_specs.as_slice(),
             &self.visible_tool_names,
-            &self.tool_policy,
+            &self.tool_policy_session,
         );
         self.visible_tool_specs = Arc::new(super::builder::dedup_visible_tool_specs(visible_specs));
     }
