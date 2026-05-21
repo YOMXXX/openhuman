@@ -37,6 +37,21 @@ const ALL_OPENHUMAN_AI_SETTINGS = {
   },
 };
 
+const ALL_LOCAL_AI_SETTINGS = {
+  cloudProviders: [],
+  routing: {
+    chat: { kind: 'local' as const, model: 'qwen3:8b' },
+    reasoning: { kind: 'local' as const, model: 'qwen3:8b' },
+    agentic: { kind: 'local' as const, model: 'qwen3:8b' },
+    coding: { kind: 'local' as const, model: 'qwen3:8b' },
+    memory: { kind: 'local' as const, model: 'nomic-embed-text' },
+    embeddings: { kind: 'local' as const, model: 'nomic-embed-text' },
+    heartbeat: { kind: 'local' as const, model: 'qwen3:8b' },
+    learning: { kind: 'local' as const, model: 'qwen3:8b' },
+    subconscious: { kind: 'local' as const, model: 'qwen3:8b' },
+  },
+};
+
 interface BuildUsageOpts {
   remainingUsd?: number;
   cycleBudgetUsd?: number;
@@ -473,6 +488,26 @@ describe('useUsageState', () => {
     expect(result.current.shouldShowBudgetCompletedMessage).toBe(false);
     expect(result.current.isBudgetExhausted).toBe(false);
     expect(result.current.isAtLimit).toBe(false);
+  });
+
+  it('does not fetch billing usage when every workload routes away from OpenHuman (#2020)', async () => {
+    const { useUsageState } = await import('./useUsageState');
+
+    mockLoadAISettings.mockResolvedValue(ALL_LOCAL_AI_SETTINGS);
+    mockGetCurrentPlan.mockRejectedValue(new Error('billing plan should not be fetched'));
+    mockGetTeamUsage.mockRejectedValue(new Error('team usage should not be fetched'));
+
+    const { result } = renderHook(() => useUsageState());
+
+    await waitFor(() => {
+      expect(result.current.isLoading).toBe(false);
+    });
+
+    expect(result.current.teamUsage).toBeNull();
+    expect(result.current.currentPlan).toBeNull();
+    expect(result.current.isFullyRoutedAway).toBe(true);
+    expect(mockGetCurrentPlan).not.toHaveBeenCalled();
+    expect(mockGetTeamUsage).not.toHaveBeenCalled();
   });
 
   it('rethrows CoreRpcError(kind=auth_expired) from loadAISettings instead of swallowing it (graycyrus review on #2053)', async () => {

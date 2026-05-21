@@ -19,6 +19,7 @@
 //! Endpoints exempt from auth (checked by [`rpc_auth_middleware`]):
 //! - `GET /`              — public info page
 //! - `GET /health`        — liveness probe
+//! - `GET /auth`          — desktop login callback fallback
 //! - `GET /auth/telegram` — external browser callback (carries its own token)
 //! - `GET /schema`        — read-only schema discovery
 //! - `GET /events`        — SSE stream; browser `EventSource` cannot set headers
@@ -38,7 +39,9 @@ use std::path::Path;
 use std::sync::OnceLock;
 
 #[cfg(unix)]
-use std::os::unix::fs::{OpenOptionsExt as _, PermissionsExt as _};
+use std::os::unix::fs::OpenOptionsExt as _;
+#[cfg(all(unix, test))]
+use std::os::unix::fs::PermissionsExt as _;
 
 use axum::http::{header, Method, StatusCode};
 use axum::middleware::Next;
@@ -57,6 +60,7 @@ static RPC_TOKEN: OnceLock<String> = OnceLock::new();
 const PUBLIC_PATHS: &[&str] = &[
     "/",
     "/health",
+    "/auth",
     "/auth/telegram",
     "/schema",
     "/events",
@@ -346,6 +350,11 @@ mod tests {
             extract_query_token(Some("token=cafe%2Dbabe")),
             Some("cafe-babe".to_string())
         );
+    }
+
+    #[test]
+    fn public_paths_include_desktop_auth_callback() {
+        assert!(PUBLIC_PATHS.contains(&"/auth"));
     }
 
     #[cfg(unix)]

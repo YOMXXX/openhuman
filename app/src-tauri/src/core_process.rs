@@ -343,10 +343,14 @@ impl CoreProcessHandle {
             if retry_after_takeover {
                 continue;
             }
-            return Err("core process did not become ready".to_string());
+            return Err(core_not_ready_error(
+                self.port(),
+                received_ready,
+                startup_attempt + 1,
+            ));
         }
 
-        Err("core process did not become ready".to_string())
+        Err(core_not_ready_error(self.port(), false, 2))
     }
 
     fn apply_embedded_ready_signal(
@@ -596,6 +600,18 @@ pub(crate) fn reuse_existing_listener_enabled() -> bool {
     std::env::var("OPENHUMAN_CORE_REUSE_EXISTING")
         .map(|v| matches!(v.trim(), "1" | "true" | "TRUE" | "yes" | "YES"))
         .unwrap_or(false)
+}
+
+fn core_not_ready_error(port: u16, received_ready: bool, attempt: u8) -> String {
+    format!(
+        "core process did not become ready after 20s \
+         (port={port}, ready_signal={}, attempt={attempt})",
+        if received_ready {
+            "received"
+        } else {
+            "missing"
+        }
+    )
 }
 
 async fn is_port_open(port: u16) -> bool {

@@ -20,6 +20,9 @@ pub fn toolkit_description(slug: &str) -> &'static str {
         "google_sheets" => "Read, write, and manage Google Sheets spreadsheets",
         "outlook" => "Send, read, and manage emails in Microsoft Outlook",
         "microsoft_teams" => "Send messages and manage channels in Microsoft Teams",
+        "larksuite" => {
+            "Connect Lark / Feishu workspace chat, docs, wiki, and meetings via Composio"
+        }
         "linear" => "Create and manage issues, projects, and cycles in Linear",
         "jira" => "Create and manage issues, projects, and sprints in Jira",
         "trello" => "Create and manage cards, lists, and boards in Trello",

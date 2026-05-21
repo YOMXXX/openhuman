@@ -71,6 +71,7 @@ const CAPABILITY_TOOLKITS: &[&str] = &[
     "googlesheets",
     "outlook",
     "microsoft_teams",
+    "larksuite",
     "linear",
     "jira",
     "trello",
@@ -355,6 +356,23 @@ mod tests {
     }
 
     #[test]
+    fn capability_matrix_includes_larksuite_as_catalog_only_chinese_workspace_toolkit() {
+        let matrix = capability_matrix();
+        let larksuite = matrix
+            .iter()
+            .find(|entry| entry.toolkit == "larksuite")
+            .expect("larksuite capability row");
+        assert!(!larksuite.native_provider);
+        assert!(!larksuite.user_profile);
+        assert!(!larksuite.initial_sync);
+        assert!(!larksuite.periodic_sync);
+        assert_eq!(larksuite.sync_interval_secs, None);
+        assert!(!larksuite.memory_ingest);
+        assert!(larksuite.description.contains("Lark"));
+        assert!(larksuite.description.contains("Feishu"));
+    }
+
+    #[test]
     fn toolkit_description_known_slugs_are_distinct_and_non_empty() {
         let known = [
             "gmail",
@@ -369,6 +387,7 @@ mod tests {
             "outlook",
             "microsoft_teams",
             "linear",
+            "larksuite",
             "jira",
             "trello",
             "asana",

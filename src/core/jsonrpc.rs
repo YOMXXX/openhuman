@@ -393,8 +393,18 @@ struct TelegramAuthQuery {
     token: Option<String>,
 }
 
+/// Query parameters for the generic desktop auth callback.
+#[derive(Debug, serde::Deserialize)]
+struct DesktopAuthQuery {
+    /// One-time login token, or a direct session JWT when `key=auth`.
+    token: Option<String>,
+    /// Backend marker for direct session JWT callbacks.
+    key: Option<String>,
+}
+
 /// Returns the HTML for a successful connection page.
-fn success_html() -> String {
+fn success_html(message: &str) -> String {
+    let escaped_message = escape_html(message);
     r#"<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -414,11 +424,11 @@ fn success_html() -> String {
     <div class="card">
         <div class="icon">&#10004;</div>
         <h1>Connected!</h1>
-        <p>Your Telegram account has been connected to OpenHuman. You can close this tab.</p>
+        <p>__MESSAGE__</p>
     </div>
 </body>
 </html>"#
-        .to_string()
+    .replace("__MESSAGE__", &escaped_message)
 }
 
 /// Simple HTML escaping for error messages.
@@ -564,7 +574,114 @@ async fn telegram_auth_handler(Query(query): Query<TelegramAuthQuery>) -> impl I
         }
     }
 
-    html_response(StatusCode::OK, success_html())
+    html_response(
+        StatusCode::OK,
+        success_html(
+            "Your Telegram account has been connected to OpenHuman. You can close this tab.",
+        ),
+    )
+}
+
+/// Handles the generic desktop login callback fallback.
+///
+/// The preferred path is the `openhuman://auth?...` deep link handled in the
+/// renderer. On hosts where URL-scheme registration is broken, some login
+/// flows can fall back to the local core callback (`/auth`). This route is
+/// public because the callback carries its own one-time login token.
+async fn desktop_auth_handler(Query(query): Query<DesktopAuthQuery>) -> impl IntoResponse {
+    let html_response = |status: StatusCode, body: String| -> Response {
+        (
+            status,
+            [(header::CONTENT_TYPE, "text/html; charset=utf-8")],
+            body,
+        )
+            .into_response()
+    };
+
+    let token = match query
+        .token
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+    {
+        Some(t) => t.to_string(),
+        None => {
+            return html_response(
+                StatusCode::BAD_REQUEST,
+                error_html("Sign-in callback was missing a token. Please try again."),
+            )
+        }
+    };
+
+    log::info!("[auth:desktop] Received desktop auth callback");
+
+    let config = match crate::openhuman::config::Config::load_or_init().await {
+        Ok(c) => c,
+        Err(e) => {
+            log::error!("[auth:desktop] Failed to load config: {e}");
+            return html_response(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                error_html("Internal error. Please try again."),
+            );
+        }
+    };
+
+    let jwt_token = if query
+        .key
+        .as_deref()
+        .map(str::trim)
+        .is_some_and(|key| key == "auth")
+    {
+        token
+    } else {
+        let api_url = crate::api::config::effective_backend_api_url(&config.api_url);
+        let client = match crate::api::rest::BackendOAuthClient::new(&api_url) {
+            Ok(c) => c,
+            Err(e) => {
+                log::error!("[auth:desktop] Failed to create API client: {e}");
+                return html_response(
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    error_html("Internal error. Please try again."),
+                );
+            }
+        };
+
+        match client.consume_login_token(&token).await {
+            Ok(jwt) => jwt,
+            Err(e) => {
+                log::warn!("[auth:desktop] Login token consumption failed: {e}");
+                return html_response(
+                    StatusCode::BAD_REQUEST,
+                    error_html(
+                        "This sign-in link has expired or was already used. Please try again.",
+                    ),
+                );
+            }
+        }
+    };
+
+    match crate::openhuman::credentials::ops::store_session(&config, &jwt_token, None, None).await {
+        Ok(outcome) => {
+            for msg in &outcome.logs {
+                log::info!("[auth:desktop] {msg}");
+            }
+            log::info!("[auth:desktop] Session stored successfully");
+        }
+        Err(e) => {
+            log::error!("[auth:desktop] Failed to store session: {e}");
+            return html_response(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                error_html(
+                    "Sign-in succeeded but OpenHuman could not save the session. Please try again.",
+                ),
+            );
+        }
+    }
+
+    html_response(
+        StatusCode::OK,
+        success_html("Sign-in completed. You can close this tab and return to OpenHuman."),
+    )
 }
 
 /// WebSocket upgrade handler for streaming voice dictation.
@@ -600,6 +717,7 @@ pub fn build_core_http_router(socketio_enabled: bool) -> Router {
         .route("/events/webhooks", get(webhook_events_handler))
         .route("/rpc", post(rpc_handler))
         .route("/ws/dictation", get(dictation_ws_handler))
+        .route("/auth", get(desktop_auth_handler))
         .route("/auth/telegram", get(telegram_auth_handler))
         // OpenAI-compatible inference endpoint (/v1/chat/completions, /v1/models)
         .nest("/v1", crate::openhuman::inference::http::router())

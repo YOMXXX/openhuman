@@ -1,6 +1,7 @@
 use super::{
-    current_rpc_token, default_core_port, generate_rpc_token, is_expected_port_clash,
-    is_openhuman_root_body, parse_lsof_pid, parse_netstat_pid, CoreProcessHandle,
+    core_not_ready_error, current_rpc_token, default_core_port, generate_rpc_token,
+    is_expected_port_clash, is_openhuman_root_body, parse_lsof_pid, parse_netstat_pid,
+    CoreProcessHandle,
 };
 use std::sync::{Mutex, MutexGuard, OnceLock};
 
@@ -61,6 +62,16 @@ fn core_process_handle_new_creates_instance() {
     let handle = CoreProcessHandle::new(9999);
     assert_eq!(handle.port(), 9999);
     assert_eq!(handle.rpc_url(), "http://127.0.0.1:9999/rpc");
+}
+
+#[test]
+fn core_not_ready_error_includes_startup_diagnostics() {
+    let message = core_not_ready_error(7788, true, 2);
+
+    assert!(message.contains("core process did not become ready"));
+    assert!(message.contains("port=7788"));
+    assert!(message.contains("ready_signal=received"));
+    assert!(message.contains("attempt=2"));
 }
 
 #[test]
