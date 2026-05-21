@@ -224,6 +224,12 @@ fn base_tool_specs() -> Vec<McpToolSpec> {
                           `memory.search` or `memory.recall`.",
             rpc_method: Some("openhuman.memory_doc_put"),
             input_schema: memory_store_schema(),
+            annotations: json!({
+                "readOnlyHint": false,
+                "destructiveHint": false,
+                "idempotentHint": true,
+                "openWorldHint": false
+            }),
         },
         McpToolSpec {
             name: "memory.note",
@@ -233,6 +239,12 @@ fn base_tool_specs() -> Vec<McpToolSpec> {
                           can be retrieved alongside it.",
             rpc_method: Some("openhuman.memory_doc_put"),
             input_schema: memory_note_schema(),
+            annotations: json!({
+                "readOnlyHint": false,
+                "destructiveHint": false,
+                "idempotentHint": false,
+                "openWorldHint": false
+            }),
         },
     ]
 }
@@ -1376,7 +1388,7 @@ mod tests {
         // to clients. (`searxng_search` is read-only but openWorld, so it
         // verifies the read-only axis here and is exempt from the
         // openWorld=false check below.)
-        let act_tool_names = ["agent.run_subagent"];
+        let act_tool_names = ["agent.run_subagent", "memory.store", "memory.note"];
         let open_world_read_only = ["searxng_search"];
         for spec in tool_specs() {
             if act_tool_names.contains(&spec.name) {
