@@ -51,6 +51,10 @@ fn path_compatibility_rejects_cross_platform_absolute_paths() {
         r"\\server\share\OHvault",
         "windows"
     ));
+    assert!(store::path_looks_compatible_with_host_os(
+        "//server/share/OHvault",
+        "windows"
+    ));
     assert!(!store::path_looks_compatible_with_host_os(
         "/home/leigh/OHvault",
         "windows"
@@ -70,6 +74,10 @@ fn path_compatibility_rejects_cross_platform_absolute_paths() {
     ));
     assert!(!store::path_looks_compatible_with_host_os(
         r"\\server\share\OHvault",
+        "macos"
+    ));
+    assert!(!store::path_looks_compatible_with_host_os(
+        "//server/share/OHvault",
         "macos"
     ));
 }

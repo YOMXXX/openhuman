@@ -55,9 +55,7 @@ pub(crate) fn with_connection<T>(
     .context("Failed to initialize vault schema")?;
 
     let migrated = MIGRATED_VAULT_DBS.get_or_init(|| Mutex::new(HashSet::new()));
-    let already = migrated
-        .lock()
-        .map_or(false, |set| set.contains(&db_path));
+    let already = migrated.lock().map_or(false, |set| set.contains(&db_path));
     if !already {
         ensure_host_os_column(&conn).context("Failed to migrate vault schema")?;
         if let Ok(mut set) = migrated.lock() {
@@ -330,8 +328,8 @@ fn looks_like_windows_drive_path(path: &str) -> bool {
 fn looks_like_windows_unc_path(path: &str) -> bool {
     let bytes = path.as_bytes();
     bytes.len() >= 3
-        && bytes[0] == b'\\'
-        && bytes[1] == b'\\'
+        && matches!(bytes[0], b'\\' | b'/')
+        && bytes[1] == bytes[0]
         && !matches!(bytes[2], b'\\' | b'/')
 }
 
