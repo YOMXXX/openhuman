@@ -18,10 +18,9 @@
  *          - Empty token → inline token error.
  *          - Unreachable host on "Test Connection" → unreachable status pill
  *            (no auth backend at 127.0.0.1:1 / picks a closed port).
- *     4. Switch back to Local, click Continue. BootCheckGate runs `runBootCheck`
- *        against the embedded local core (which is already up — the e2e build
- *        seeds `VITE_OPENHUMAN_E2E_DEFAULT_CORE_MODE=local`) and we land back
- *        on Welcome with the OAuth provider row visible.
+ *     4. Fill the Cloud form with the live test core URL/token and click
+ *        Continue. This keeps the test deterministic while exercising the
+ *        cloud-runtime persistence path that remote-core OAuth depends on.
  *
  *   Phase 2 — Provider login (deep-link bypass simulates the OAuth round-trip):
  *     5. Welcome shows OAuth provider buttons. We don't click them (that opens
@@ -114,6 +113,47 @@ async function fillInput(selector: string, value: string): Promise<boolean> {
     },
     { sel: selector, val: value }
   );
+}
+
+interface TauriResult<T> {
+  __ok?: T;
+  __error?: string;
+}
+
+async function invokeTauri<T = unknown>(
+  cmd: string,
+  args: Record<string, unknown> = {}
+): Promise<TauriResult<T>> {
+  return (await browser.executeAsync(
+    (command, payload, done) => {
+      const invoke = (window as any).__TAURI_INTERNALS__?.invoke;
+      if (typeof invoke !== 'function') {
+        done({ __error: 'window.__TAURI_INTERNALS__.invoke not available' });
+        return;
+      }
+      invoke(command, payload)
+        .then((result: unknown) => done({ __ok: result }))
+        .catch((err: unknown) =>
+          done({ __error: err instanceof Error ? err.message : String(err) })
+        );
+    },
+    cmd,
+    args
+  )) as TauriResult<T>;
+}
+
+async function getLiveCoreEndpoint(): Promise<{ rpcUrl: string; token: string }> {
+  const [rpcUrlResult, tokenResult] = await Promise.all([
+    invokeTauri<string>('core_rpc_url'),
+    invokeTauri<string>('core_rpc_token'),
+  ]);
+  expect(rpcUrlResult.__error).toBeUndefined();
+  expect(tokenResult.__error).toBeUndefined();
+  const rpcUrl = String(rpcUrlResult.__ok ?? '');
+  const token = String(tokenResult.__ok ?? '');
+  expect(rpcUrl).toMatch(/^http:\/\/127\.0\.0\.1:\d+\/rpc$/);
+  expect(token.length).toBeGreaterThanOrEqual(16);
+  return { rpcUrl, token };
 }
 
 /** Open the BootCheckGate ModePicker by clicking Welcome's "Select a Runtime". */
@@ -233,15 +273,17 @@ describe('Runtime picker → login → onboarding → home → logout', () => {
     expect(saw).toBe(true);
   });
 
-  it('switching back to Local and clicking Continue closes the picker', async function () {
+  it('continuing with a reachable cloud endpoint closes the picker', async function () {
     // Polling up to 25s for picker to close + 15s for logged-out state.
     this.timeout(60_000);
-    expect(await clickByTextDom('Run Locally (Recommended)')).toBe(true);
-    await browser.pause(500);
+    const { rpcUrl, token } = await getLiveCoreEndpoint();
+    expect(await fillInput('input[type="url"]', rpcUrl)).toBe(true);
+    expect(await fillInput('input[type="password"]', token)).toBe(true);
     expect(await clickByTextDom('Continue')).toBe(true);
 
     // BootCheckGate flips to 'checking' then 'match' against the in-process
-    // local core. Eventually we either land on Welcome (still logged out) or
+    // core through the persisted cloud endpoint. Eventually we either land on
+    // Welcome (still logged out) or
     // — if onboarding state leaked — on the onboarding overlay. Either is a
     // valid post-picker state; we only care that the picker is gone.
     const deadline = Date.now() + 25_000;
@@ -265,6 +307,13 @@ describe('Runtime picker → login → onboarding → home → logout', () => {
     // We should be back on Welcome (logged-out marker).
     const back = await waitForLoggedOutState(15_000);
     expect(back).not.toBeNull();
+
+    const persisted = await browser.execute(() => ({
+      mode: localStorage.getItem('openhuman_core_mode'),
+      url: localStorage.getItem('openhuman_core_rpc_url'),
+      token: localStorage.getItem('openhuman_core_rpc_token'),
+    }));
+    expect(persisted).toEqual({ mode: 'cloud', url: rpcUrl, token });
   });
 
   // -------------------------------------------------------------------------
@@ -289,6 +338,8 @@ describe('Runtime picker → login → onboarding → home → logout', () => {
   it('deep-link auth callback signs the user in and reaches Home', async function () {
     // Auth + onboarding + home confirmation needs more than 30s.
     this.timeout(90_000);
+    const persistedMode = await browser.execute(() => localStorage.getItem('openhuman_core_mode'));
+    expect(persistedMode).toBe('cloud');
     clearRequestLog();
     await triggerAuthDeepLinkBypass('e2e-runtime-picker-user');
     await waitForWindowVisible(20_000);

@@ -55,6 +55,10 @@ describe('desktopDeepLinkListener', () => {
     vi.mocked(isTauri).mockReturnValue(true);
     vi.mocked(getCurrent).mockResolvedValue(null);
     vi.mocked(onOpenUrl).mockResolvedValue(() => {});
+    localStorage.removeItem('openhuman_core_mode');
+    localStorage.removeItem('openhuman_core_rpc_url');
+    localStorage.removeItem('openhuman_core_rpc_token');
+    window.location.hash = '#/';
     waitForOAuthAuthReadiness.mockReset();
     waitForOAuthAuthReadiness.mockResolvedValue({ ready: true });
     vi.mocked(storeSession).mockReset();
@@ -102,6 +106,25 @@ describe('desktopDeepLinkListener', () => {
       })
     );
     expect(JSON.stringify(vi.mocked(console.warn).mock.calls)).not.toContain('token%3Dsecret');
+  });
+
+  it('stores a key=auth JWT when cloud mode is the selected runtime', async () => {
+    localStorage.setItem('openhuman_core_mode', 'cloud');
+    localStorage.setItem('openhuman_core_rpc_url', 'https://core.example.com/rpc');
+    localStorage.setItem('openhuman_core_rpc_token', 'remote-core-token');
+    vi.mocked(getCurrent).mockResolvedValue(['openhuman://auth?token=remote-jwt&key=auth']);
+
+    await setupDesktopDeepLinkListener();
+    await waitForAuthSettled();
+
+    expect(waitForOAuthAuthReadiness).toHaveBeenCalledTimes(1);
+    expect(storeSession).toHaveBeenCalledWith('remote-jwt', {});
+    expect(window.location.hash).toBe('#/home');
+    expect(getDeepLinkAuthState()).toEqual({
+      isProcessing: false,
+      errorMessage: null,
+      requiresAppDataReset: false,
+    });
   });
 
   it('flags requiresAppDataReset when auth fails with a decryption error', async () => {
