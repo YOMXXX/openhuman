@@ -547,10 +547,7 @@ describe('useUsageState', () => {
 
     mockLoadAISettings.mockResolvedValue({
       ...ALL_LOCAL_AI_SETTINGS,
-      routing: {
-        ...ALL_LOCAL_AI_SETTINGS.routing,
-        memory: { kind: 'openhuman' as const },
-      },
+      routing: { ...ALL_LOCAL_AI_SETTINGS.routing, memory: { kind: 'openhuman' as const } },
     });
     mockGetCurrentPlan.mockResolvedValue(freePlan());
     mockGetTeamUsage.mockResolvedValue(buildUsage());
