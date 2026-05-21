@@ -1,3 +1,7 @@
+use std::collections::HashSet;
+use std::path::PathBuf;
+use std::sync::{Mutex, OnceLock};
+
 use anyhow::{Context, Result};
 use chrono::{DateTime, Utc};
 use rusqlite::{params, Connection, OptionalExtension};
@@ -5,6 +9,8 @@ use rusqlite::{params, Connection, OptionalExtension};
 use crate::openhuman::config::Config;
 
 use super::types::{Vault, VaultFile, VaultFileStatus};
+
+static MIGRATED_VAULT_DBS: OnceLock<Mutex<HashSet<PathBuf>>> = OnceLock::new();
 
 pub(crate) fn with_connection<T>(
     config: &Config,
@@ -48,7 +54,16 @@ pub(crate) fn with_connection<T>(
     )
     .context("Failed to initialize vault schema")?;
 
-    ensure_host_os_column(&conn).context("Failed to migrate vault schema")?;
+    let migrated = MIGRATED_VAULT_DBS.get_or_init(|| Mutex::new(HashSet::new()));
+    let already = migrated
+        .lock()
+        .map_or(false, |set| set.contains(&db_path));
+    if !already {
+        ensure_host_os_column(&conn).context("Failed to migrate vault schema")?;
+        if let Ok(mut set) = migrated.lock() {
+            set.insert(db_path.clone());
+        }
+    }
 
     f(&conn)
 }
@@ -315,8 +330,8 @@ fn looks_like_windows_drive_path(path: &str) -> bool {
 fn looks_like_windows_unc_path(path: &str) -> bool {
     let bytes = path.as_bytes();
     bytes.len() >= 3
-        && matches!(bytes[0], b'\\' | b'/')
-        && bytes[1] == bytes[0]
+        && bytes[0] == b'\\'
+        && bytes[1] == b'\\'
         && !matches!(bytes[2], b'\\' | b'/')
 }
 

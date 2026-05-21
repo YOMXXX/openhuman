@@ -542,6 +542,30 @@ describe('useUsageState', () => {
     expect(mockGetTeamUsage).not.toHaveBeenCalled();
   });
 
+  it('still fetches billing when a background workload remains on OpenHuman', async () => {
+    const { useUsageState } = await import('./useUsageState');
+
+    mockLoadAISettings.mockResolvedValue({
+      ...ALL_LOCAL_AI_SETTINGS,
+      routing: {
+        ...ALL_LOCAL_AI_SETTINGS.routing,
+        memory: { kind: 'openhuman' as const },
+      },
+    });
+    mockGetCurrentPlan.mockResolvedValue(freePlan());
+    mockGetTeamUsage.mockResolvedValue(buildUsage());
+
+    const { result } = renderHook(() => useUsageState());
+
+    await waitFor(() => {
+      expect(result.current.isLoading).toBe(false);
+    });
+
+    expect(result.current.isFullyRoutedAway).toBe(true);
+    expect(mockGetCurrentPlan).toHaveBeenCalledTimes(1);
+    expect(mockGetTeamUsage).toHaveBeenCalledTimes(1);
+  });
+
   it('rethrows CoreRpcError(kind=auth_expired) from loadAISettings instead of swallowing it (graycyrus review on #2053)', async () => {
     // The two sibling fetches (getTeamUsage, getCurrentPlan) explicitly
     // re-throw auth_expired so coreRpcClient's global re-auth event fires.

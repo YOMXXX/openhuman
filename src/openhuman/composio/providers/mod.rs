@@ -368,6 +368,9 @@ mod tests {
         assert!(!larksuite.periodic_sync);
         assert_eq!(larksuite.sync_interval_secs, None);
         assert!(!larksuite.memory_ingest);
+        assert!(!larksuite.curated_tools);
+        assert!(!larksuite.tool_execution);
+        assert_eq!(larksuite.curated_tool_count, 0);
         assert!(larksuite.description.contains("Lark"));
         assert!(larksuite.description.contains("Feishu"));
     }
