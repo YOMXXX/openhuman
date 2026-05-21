@@ -2,7 +2,7 @@ use std::collections::HashSet;
 use std::path::PathBuf;
 use std::sync::{Mutex, OnceLock};
 
-use anyhow::{Context, Result};
+use anyhow::{anyhow, Context, Result};
 use chrono::{DateTime, Utc};
 use rusqlite::{params, Connection, OptionalExtension};
 
@@ -55,12 +55,12 @@ pub(crate) fn with_connection<T>(
     .context("Failed to initialize vault schema")?;
 
     let migrated = MIGRATED_VAULT_DBS.get_or_init(|| Mutex::new(HashSet::new()));
-    let already = migrated.lock().map_or(false, |set| set.contains(&db_path));
-    if !already {
+    let mut migrated_paths = migrated
+        .lock()
+        .map_err(|_| anyhow!("Failed to lock vault migration cache"))?;
+    if !migrated_paths.contains(&db_path) {
         ensure_host_os_column(&conn).context("Failed to migrate vault schema")?;
-        if let Ok(mut set) = migrated.lock() {
-            set.insert(db_path.clone());
-        }
+        migrated_paths.insert(db_path.clone());
     }
 
     f(&conn)
