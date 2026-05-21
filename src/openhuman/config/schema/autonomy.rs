@@ -57,7 +57,6 @@ fn default_allowed_commands() -> Vec<String> {
         "wc".into(),
         "head".into(),
         "tail".into(),
-        "date".into(),
         "dir".into(),
         "type".into(),
         "where".into(),

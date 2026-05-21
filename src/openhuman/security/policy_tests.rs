@@ -100,6 +100,7 @@ fn allowed_commands_include_windows_read_equivalents() {
         "type README.md",
         "where node",
         "findstr pattern file.txt",
+        "more README.md",
     ] {
         assert!(
             p.is_command_allowed(command),
@@ -112,7 +113,19 @@ fn allowed_commands_include_windows_read_equivalents() {
 fn config_default_policy_includes_windows_read_equivalents() {
     let cfg = crate::openhuman::config::AutonomyConfig::default();
     let p = SecurityPolicy::from_config(&cfg, std::path::Path::new("."));
-    assert!(p.is_command_allowed("where node"));
+    for command in [
+        "dir",
+        "type README.md",
+        "where node",
+        "findstr pattern file.txt",
+        "more README.md",
+    ] {
+        assert!(
+            p.is_command_allowed(command),
+            "config-derived policy should allow Windows read-only command: {command}"
+        );
+    }
+    assert!(!p.is_command_allowed("date 2026-05-21"));
 }
 
 #[test]
