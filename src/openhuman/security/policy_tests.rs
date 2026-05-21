@@ -93,6 +93,29 @@ fn allowed_commands_basic() {
 }
 
 #[test]
+fn allowed_commands_include_windows_read_equivalents() {
+    let p = default_policy();
+    for command in [
+        "dir",
+        "type README.md",
+        "where node",
+        "findstr pattern file.txt",
+    ] {
+        assert!(
+            p.is_command_allowed(command),
+            "default policy should allow Windows read-only command: {command}"
+        );
+    }
+}
+
+#[test]
+fn config_default_policy_includes_windows_read_equivalents() {
+    let cfg = crate::openhuman::config::AutonomyConfig::default();
+    let p = SecurityPolicy::from_config(&cfg, std::path::Path::new("."));
+    assert!(p.is_command_allowed("where node"));
+}
+
+#[test]
 fn blocked_commands_basic() {
     let p = default_policy();
     assert!(!p.is_command_allowed("rm -rf /"));
