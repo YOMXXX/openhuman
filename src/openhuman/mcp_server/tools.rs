@@ -665,7 +665,11 @@ fn build_rpc_params(
             reject_unexpected_arguments(&args, MEMORY_NOTE_ARGUMENTS)?;
             let chunk_id = required_non_empty_string(&args, "chunk_id")?;
             let note_text = required_non_empty_string(&args, "note_text")?;
-            let key = format!("mcp-note-{chunk_id}");
+            // Include a content hash so multiple notes on the same chunk get
+            // distinct keys instead of silently overwriting each other.
+            use sha2::{Digest, Sha256};
+            let content_hash = hex::encode(&Sha256::digest(note_text.as_bytes())[..4]);
+            let key = format!("mcp-note-{chunk_id}-{content_hash}");
             let title = format!("Note on chunk {chunk_id}");
             let content = format!("[annotation for chunk_id={chunk_id}]\n\n{note_text}");
             let mut metadata = Map::new();
@@ -993,18 +997,18 @@ async fn dispatch_write_tool(
             Ok(tool_success(value))
         }
         Some(Err(message)) => {
-            log::warn!(
-                "[mcp_server] write handler error tool={} error={}",
-                tool_name,
-                message
+            tracing::warn!(
+                tool = tool_name,
+                error = %message,
+                "[mcp_server] write handler error"
             );
             Ok(tool_error(format!("{} failed: {message}", tool_name)))
         }
         None => {
-            log::error!(
-                "[mcp_server] write mapping missing registered RPC method tool={} rpc_method={}",
-                tool_name,
-                rpc_method
+            tracing::error!(
+                tool = tool_name,
+                rpc_method = rpc_method,
+                "[mcp_server] write mapping missing registered RPC method"
             );
             Ok(tool_error(format!(
                 "{} is unavailable: mapped RPC method `{}` is not registered",
@@ -1749,7 +1753,18 @@ mod tests {
         .expect("params");
 
         assert_eq!(params["namespace"], "mcp");
-        assert_eq!(params["key"], "mcp-note-chunk-42");
+        // Key includes a content hash so multiple notes on the same chunk
+        // get distinct keys.
+        let key = params["key"].as_str().unwrap();
+        assert!(
+            key.starts_with("mcp-note-chunk-42-"),
+            "key should start with chunk id prefix, got: {key}"
+        );
+        assert_eq!(
+            key.len(),
+            "mcp-note-chunk-42-".len() + 8,
+            "hash suffix should be 8 hex chars"
+        );
         assert!(params["title"].as_str().unwrap().contains("chunk-42"));
         assert!(params["content"]
             .as_str()
