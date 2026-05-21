@@ -65,7 +65,25 @@ fn init_in_slot(
         "[memory:global] initialising global MemoryClient workspace={}",
         workspace_dir.display()
     );
-    let client = Arc::new(MemoryClient::from_workspace_dir(workspace_dir.clone())?);
+    let client = match MemoryClient::from_workspace_dir(workspace_dir.clone()) {
+        Ok(client) => Arc::new(client),
+        Err(error) => {
+            let mut guard = slot
+                .write()
+                .map_err(|e| format!("[memory:global] write lock poisoned: {e}"))?;
+            if guard
+                .as_ref()
+                .is_some_and(|existing| existing.workspace_dir != workspace_dir)
+            {
+                log::warn!(
+                    "[memory:global] clearing stale MemoryClient after failed rebind to {}",
+                    workspace_dir.display()
+                );
+                *guard = None;
+            }
+            return Err(error);
+        }
+    };
 
     let mut guard = slot
         .write()
@@ -184,6 +202,24 @@ mod tests {
 
         assert!(!Arc::ptr_eq(&first, &second));
         assert!(Arc::ptr_eq(&second, &current));
+    }
+
+    #[tokio::test]
+    async fn init_clears_existing_client_when_rebind_workspace_cannot_initialise() {
+        let slot = GlobalClientSlot::default();
+        let tmp = TempDir::new().unwrap();
+
+        let _first = init_in_slot(&slot, tmp.path().join("ws-a")).unwrap();
+        let file_path = tmp.path().join("not-a-directory");
+        std::fs::write(&file_path, b"not a workspace").unwrap();
+
+        let err = match init_in_slot(&slot, file_path) {
+            Ok(_) => panic!("rebind to a file path must fail"),
+            Err(err) => err,
+        };
+
+        assert!(err.contains("Create workspace dir"));
+        assert!(client_from(&slot).is_err());
     }
 
     #[tokio::test]

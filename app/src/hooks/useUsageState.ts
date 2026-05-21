@@ -55,9 +55,6 @@ async function fetchUsageData(): Promise<{
   currentPlan: CurrentPlanData | null;
   aiSettings: AISettings | null;
 } | null> {
-  if (_cache && Date.now() - _cache.fetchedAt < CACHE_TTL_MS) {
-    return _cache.data;
-  }
   // Read routing first. If every workload is explicitly assigned to a local
   // or user-supplied cloud provider, this session should not phone home to
   // OpenHuman's billing/usage APIs at all (#2020). Missing/failed AI settings
@@ -73,6 +70,12 @@ async function fetchUsageData(): Promise<{
     workloadsRoutedAway(aiSettings as AISettings, ALL_WORKLOADS)
   ) {
     return { teamUsage: null, currentPlan: null, aiSettings: aiSettings as AISettings };
+  }
+  if (_cache && Date.now() - _cache.fetchedAt < CACHE_TTL_MS) {
+    return {
+      ..._cache.data,
+      aiSettings: aiSettings === USAGE_UNAVAILABLE ? null : (aiSettings as AISettings),
+    };
   }
   // Wrap each leg so a single failing call (e.g. /teams returning 401 after
   // session expiry) cannot reject the Promise.all microtask before the

@@ -510,6 +510,38 @@ describe('useUsageState', () => {
     expect(mockGetTeamUsage).not.toHaveBeenCalled();
   });
 
+  it('rechecks routing before returning a warm billing cache (#2020)', async () => {
+    const { useUsageState } = await import('./useUsageState');
+
+    mockGetCurrentPlan.mockResolvedValue(basicPlan());
+    mockGetTeamUsage.mockResolvedValue(buildUsage({ remainingUsd: 0, cycleBudgetUsd: 10 }));
+    mockLoadAISettings
+      .mockResolvedValueOnce(ALL_OPENHUMAN_AI_SETTINGS)
+      .mockResolvedValueOnce(ALL_LOCAL_AI_SETTINGS);
+
+    const first = renderHook(() => useUsageState());
+    await waitFor(() => {
+      expect(first.result.current.isLoading).toBe(false);
+    });
+    expect(first.result.current.teamUsage).not.toBeNull();
+    first.unmount();
+
+    mockGetCurrentPlan.mockClear();
+    mockGetTeamUsage.mockClear();
+
+    const second = renderHook(() => useUsageState());
+    await waitFor(() => {
+      expect(second.result.current.isLoading).toBe(false);
+    });
+
+    expect(second.result.current.teamUsage).toBeNull();
+    expect(second.result.current.currentPlan).toBeNull();
+    expect(second.result.current.isFullyRoutedAway).toBe(true);
+    expect(mockLoadAISettings).toHaveBeenCalledTimes(2);
+    expect(mockGetCurrentPlan).not.toHaveBeenCalled();
+    expect(mockGetTeamUsage).not.toHaveBeenCalled();
+  });
+
   it('rethrows CoreRpcError(kind=auth_expired) from loadAISettings instead of swallowing it (graycyrus review on #2053)', async () => {
     // The two sibling fetches (getTeamUsage, getCurrentPlan) explicitly
     // re-throw auth_expired so coreRpcClient's global re-auth event fires.
