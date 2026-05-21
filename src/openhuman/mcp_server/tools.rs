@@ -704,6 +704,18 @@ fn build_rpc_params(
             reject_unexpected_arguments(&args, MEMORY_STORE_ARGUMENTS)?;
             let title = required_non_empty_string(&args, "title")?;
             let content = required_non_empty_string(&args, "content")?;
+            // Cap content size to prevent a misbehaving MCP client from
+            // storing arbitrarily large documents. 64KB is generous for
+            // LLM-generated notes/summaries and consistent with the ~3k-token
+            // chunk budget used by the Memory Tree ingestion pipeline.
+            const MAX_CONTENT_BYTES: usize = 65_536;
+            if content.len() > MAX_CONTENT_BYTES {
+                return Err(ToolCallError::InvalidParams(format!(
+                    "content exceeds maximum size ({} bytes, limit {})",
+                    content.len(),
+                    MAX_CONTENT_BYTES
+                )));
+            }
             let namespace =
                 optional_non_empty_string(&args, "namespace")?.unwrap_or_else(|| "mcp".to_string());
             // Generate a deterministic key from the title for upsert dedup.
@@ -726,6 +738,14 @@ fn build_rpc_params(
             reject_unexpected_arguments(&args, MEMORY_NOTE_ARGUMENTS)?;
             let chunk_id = required_non_empty_string(&args, "chunk_id")?;
             let note_text = required_non_empty_string(&args, "note_text")?;
+            const MAX_NOTE_BYTES: usize = 65_536;
+            if note_text.len() > MAX_NOTE_BYTES {
+                return Err(ToolCallError::InvalidParams(format!(
+                    "note_text exceeds maximum size ({} bytes, limit {})",
+                    note_text.len(),
+                    MAX_NOTE_BYTES
+                )));
+            }
             // Include a content hash so multiple notes on the same chunk get
             // distinct keys instead of silently overwriting each other.
             use sha2::{Digest, Sha256};
@@ -1884,6 +1904,18 @@ mod tests {
         )
         .expect_err("must reject");
         assert!(err.message().contains("unexpected argument `priority`"));
+    }
+
+    #[test]
+    fn memory_store_rejects_oversized_content() {
+        let big = "x".repeat(65_537); // 1 byte over 64KB
+        let err = build_rpc_params("memory.store", json!({ "title": "T", "content": big }))
+            .expect_err("must reject oversized content");
+        assert!(
+            err.message().contains("exceeds maximum size"),
+            "got: {}",
+            err.message()
+        );
     }
 
     // ── memory.note ───────────────────────────────────────────────────
