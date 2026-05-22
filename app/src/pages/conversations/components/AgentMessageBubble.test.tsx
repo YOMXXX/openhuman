@@ -40,6 +40,24 @@ describe('AgentMessageBubble markdown links', () => {
     expect(mocks.openUrl).not.toHaveBeenCalled();
   });
 
+  test('logs workspace link open failures for diagnostics', async () => {
+    const error = new Error('missing file');
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    mocks.openWorkspacePath.mockRejectedValueOnce(error);
+
+    try {
+      render(<BubbleMarkdown content="[summary](workspace:memory_tree/content/missing.md)" />);
+
+      await userEvent.click(screen.getByRole('link', { name: 'summary' }));
+
+      await waitFor(() =>
+        expect(consoleError).toHaveBeenCalledWith('workspace open failed:', error)
+      );
+    } finally {
+      consoleError.mockRestore();
+    }
+  });
+
   test('uses the same workspace link handling inside table cells', async () => {
     render(<TableCellMarkdown content="[note](openhuman-workspace:/docs/note.md)" />);
 

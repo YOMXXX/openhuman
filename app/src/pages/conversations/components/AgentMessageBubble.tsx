@@ -52,8 +52,8 @@ function MarkdownAnchor({ href, children }: { href?: string; children?: ReactNod
         e.preventDefault();
         const workspaceTarget = parseWorkspaceHref(href);
         if (workspaceTarget) {
-          void openWorkspacePath(workspaceTarget.path).catch(() => {
-            // Ignore launcher errors from OS file handler failures.
+          void openWorkspacePath(workspaceTarget.path).catch(err => {
+            console.error('workspace open failed:', err);
           });
           return;
         }

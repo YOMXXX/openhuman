@@ -20,8 +20,12 @@ pub struct WorkspaceTextPreview {
 pub async fn open_workspace_path(path: String) -> Result<(), String> {
     let workspace = active_workspace_root().await?;
     let target = resolve_workspace_path(&workspace, &path)?;
-    tauri_plugin_opener::open_path(&target, None::<&str>)
-        .map_err(|err| format!("failed to open workspace path {}: {err}", target.display()))
+    tauri_plugin_opener::open_path(&target, None::<&str>).map_err(|err| {
+        workspace_path_error(format!(
+            "failed to open workspace path {}: {err}",
+            target.display()
+        ))
+    })
 }
 
 #[tauri::command]
@@ -29,10 +33,10 @@ pub async fn reveal_workspace_path(path: String) -> Result<(), String> {
     let workspace = active_workspace_root().await?;
     let target = resolve_workspace_path(&workspace, &path)?;
     tauri_plugin_opener::reveal_item_in_dir(&target).map_err(|err| {
-        format!(
+        workspace_path_error(format!(
             "failed to reveal workspace path {}: {err}",
             target.display()
-        )
+        ))
     })
 }
 
@@ -45,28 +49,36 @@ pub async fn preview_workspace_text(path: String) -> Result<WorkspaceTextPreview
 async fn active_workspace_root() -> Result<PathBuf, String> {
     let config = openhuman_core::openhuman::config::Config::load_or_init()
         .await
-        .map_err(|err| format!("failed to load OpenHuman config: {err}"))?;
+        .map_err(|err| workspace_path_error(format!("failed to load OpenHuman config: {err}")))?;
     fs::create_dir_all(&config.workspace_dir).map_err(|err| {
-        format!(
+        workspace_path_error(format!(
             "failed to create workspace directory {}: {err}",
             config.workspace_dir.display()
-        )
+        ))
     })?;
     Ok(config.workspace_dir)
+}
+
+fn workspace_path_error(message: impl Into<String>) -> String {
+    let message = message.into();
+    log::warn!("[workspace-paths] {message}");
+    message
 }
 
 fn normalize_workspace_relative_path(path: &str) -> Result<(PathBuf, String), String> {
     let trimmed = path.trim();
     if trimmed.is_empty() {
-        return Err("workspace path must not be empty".to_string());
+        return Err(workspace_path_error("workspace path must not be empty"));
     }
     if trimmed.bytes().any(|byte| byte == 0) {
-        return Err("workspace path must not contain NUL bytes".to_string());
+        return Err(workspace_path_error(
+            "workspace path must not contain NUL bytes",
+        ));
     }
 
     let normalized = trimmed.replace('\\', "/");
     if normalized.starts_with('/') || has_windows_drive_prefix(&normalized) {
-        return Err("workspace path must be relative".to_string());
+        return Err(workspace_path_error("workspace path must be relative"));
     }
 
     let mut relative = PathBuf::new();
@@ -76,17 +88,23 @@ fn normalize_workspace_relative_path(path: &str) -> Result<(PathBuf, String), St
             continue;
         }
         if part == ".." {
-            return Err("workspace path must stay inside the workspace".to_string());
+            return Err(workspace_path_error(
+                "workspace path must stay inside the workspace",
+            ));
         }
         if part.contains(':') {
-            return Err("workspace path must not contain URI or drive prefixes".to_string());
+            return Err(workspace_path_error(
+                "workspace path must not contain URI or drive prefixes",
+            ));
         }
         relative.push(part);
         clean_parts.push(part);
     }
 
     if clean_parts.is_empty() {
-        return Err("workspace path must point to a file or directory".to_string());
+        return Err(workspace_path_error(
+            "workspace path must point to a file or directory",
+        ));
     }
 
     Ok((relative, clean_parts.join("/")))
@@ -101,21 +119,34 @@ pub(crate) fn resolve_workspace_path(
     workspace_root: &Path,
     requested_path: &str,
 ) -> Result<PathBuf, String> {
-    let (relative, _) = normalize_workspace_relative_path(requested_path)?;
+    let (relative, normalized_path) = normalize_workspace_relative_path(requested_path)?;
     let root = fs::canonicalize(workspace_root).map_err(|err| {
-        format!(
+        workspace_path_error(format!(
             "failed to canonicalize workspace directory {}: {err}",
             workspace_root.display()
-        )
+        ))
     })?;
     let target = root.join(relative);
-    let target = fs::canonicalize(&target)
-        .map_err(|err| format!("workspace path does not exist {}: {err}", target.display()))?;
+    let target = fs::canonicalize(&target).map_err(|err| {
+        workspace_path_error(format!(
+            "workspace path does not exist {}: {err}",
+            target.display()
+        ))
+    })?;
 
     if !target.starts_with(&root) {
-        return Err("workspace path must stay inside the workspace".to_string());
+        return Err(workspace_path_error(format!(
+            "workspace path must stay inside the workspace: {} -> {}",
+            normalized_path,
+            target.display()
+        )));
     }
 
+    log::debug!(
+        "[workspace-paths] resolved workspace path: {} -> {}",
+        normalized_path,
+        target.display()
+    );
     Ok(target)
 }
 
@@ -126,23 +157,47 @@ pub(crate) fn preview_workspace_text_from_root(
 ) -> Result<WorkspaceTextPreview, String> {
     let (_, normalized_path) = normalize_workspace_relative_path(requested_path)?;
     let target = resolve_workspace_path(workspace_root, &normalized_path)?;
-    let metadata = fs::metadata(&target)
-        .map_err(|err| format!("failed to read metadata for {}: {err}", target.display()))?;
+    let metadata = fs::metadata(&target).map_err(|err| {
+        workspace_path_error(format!(
+            "failed to read metadata for {}: {err}",
+            target.display()
+        ))
+    })?;
     if !metadata.is_file() {
-        return Err("workspace preview target must be a file".to_string());
+        return Err(workspace_path_error(format!(
+            "workspace preview target must be a file: {}",
+            target.display()
+        )));
     }
 
-    let mut file = fs::File::open(&target)
-        .map_err(|err| format!("failed to open workspace file {}: {err}", target.display()))?;
+    let mut file = fs::File::open(&target).map_err(|err| {
+        workspace_path_error(format!(
+            "failed to open workspace file {}: {err}",
+            target.display()
+        ))
+    })?;
     let mut bytes = Vec::new();
     file.by_ref()
         .take(max_bytes.saturating_add(4) as u64)
         .read_to_end(&mut bytes)
-        .map_err(|err| format!("failed to read workspace file {}: {err}", target.display()))?;
+        .map_err(|err| {
+            workspace_path_error(format!(
+                "failed to read workspace file {}: {err}",
+                target.display()
+            ))
+        })?;
 
     let truncated = metadata.len() > max_bytes as u64;
     let preview_len = bytes.len().min(max_bytes);
-    let contents = utf8_preview(&bytes[..preview_len], truncated)?;
+    let contents = utf8_preview(&bytes[..preview_len], truncated)
+        .map_err(|err| workspace_path_error(format!("{err}: {}", target.display())))?;
+
+    log::debug!(
+        "[workspace-paths] previewed workspace text: {} bytes={} truncated={}",
+        normalized_path,
+        metadata.len(),
+        truncated
+    );
 
     Ok(WorkspaceTextPreview {
         path: normalized_path,
