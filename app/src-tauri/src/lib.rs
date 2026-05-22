@@ -408,6 +408,33 @@ struct ResolvedDataPaths {
     active_workspace_marker_path: std::path::PathBuf,
 }
 
+fn is_windows_file_lock_raw_os_error(raw_os_error: Option<i32>) -> bool {
+    matches!(raw_os_error, Some(32 | 33))
+}
+
+fn is_windows_file_lock_error(error: &std::io::Error) -> bool {
+    cfg!(windows) && is_windows_file_lock_raw_os_error(error.raw_os_error())
+}
+
+fn reset_local_data_delete_error(
+    label: &str,
+    path: &std::path::Path,
+    error: &std::io::Error,
+) -> String {
+    if is_windows_file_lock_error(error) {
+        log::warn!(
+            "[core] reset_local_data: Windows file lock blocked removal of {label} at {}: {error}",
+            path.display()
+        );
+        return format!(
+            "Failed to remove {label} at {} because it is locked by another OpenHuman window or process. Close all OpenHuman windows and try again. ({error})",
+            path.display()
+        );
+    }
+
+    format!("Failed to remove {label} at {}: {error}", path.display())
+}
+
 /// Call the core's `config_get_data_paths` RPC and parse the response.
 async fn fetch_data_paths() -> Result<ResolvedDataPaths, String> {
     let url = crate::core_rpc::core_rpc_url_value();
@@ -475,10 +502,7 @@ async fn remove_path_if_exists(path: &std::path::Path, label: &str) -> Result<()
             );
             Ok(())
         }
-        Err(e) => Err(format!(
-            "Failed to remove {label} at {}: {e}",
-            path.display()
-        )),
+        Err(e) => Err(reset_local_data_delete_error(label, path, &e)),
     }
 }
 
@@ -499,10 +523,7 @@ async fn remove_dir_if_exists(path: &std::path::Path, label: &str) -> Result<(),
             );
             Ok(())
         }
-        Err(e) => Err(format!(
-            "Failed to remove {label} at {}: {e}",
-            path.display()
-        )),
+        Err(e) => Err(reset_local_data_delete_error(label, path, &e)),
     }
 }
 
@@ -1169,6 +1190,59 @@ fn set_main_window_hidden(hide: bool) {
     );
 }
 
+/// Look up the main `WebviewWindow`, optionally waiting briefly on Windows
+/// for the Tauri runtime to re-track the window after SW_SHOW.
+///
+/// Why this exists (OPENHUMAN-TAURI-3A): on Windows the close button routes
+/// through [`set_main_window_hidden`] which uses raw-HWND `SW_HIDE`. CEF
+/// treats the hidden host as gone and the Tauri runtime drops its
+/// `WebviewWindow` record for `"main"` until the next event-loop tick after
+/// SW_SHOW restores visibility. A tray "Show window" callback that runs
+/// `set_main_window_hidden(false)` and then immediately calls
+/// `app.get_webview_window("main")` can race the re-track step and observe
+/// `None` even though the OS window is visible — Sentry sees a
+/// `[tray] failed to show main window from menu: main window not found`
+/// warn even though, from the user's perspective, the window came back.
+///
+/// Bounded retry budget: up to 5 lookups with 10 ms between attempts (≤ 50 ms
+/// worst case). The tray menu is closed during this window, so the small
+/// blocking delay is invisible. After the budget expires the original
+/// error path still triggers, preserving the signal if the runtime never
+/// re-tracks (which would indicate a real lifecycle bug, not a race).
+///
+/// Non-Windows platforms use a single lookup — the close-to-tray flow that
+/// produces the race is Windows-specific (the macOS close button routes
+/// through `app.hide()` per PR #2049, and Linux/X11 keeps the
+/// `WebviewWindow` record across `WM_DELETE_WINDOW` handling).
+fn get_main_webview_window_with_retry(
+    app: &AppHandle<AppRuntime>,
+) -> Option<tauri::WebviewWindow<AppRuntime>> {
+    #[cfg(target_os = "windows")]
+    {
+        const ATTEMPTS: usize = 5;
+        const BACKOFF: std::time::Duration = std::time::Duration::from_millis(10);
+        for attempt in 0..ATTEMPTS {
+            if let Some(window) = app.get_webview_window("main") {
+                if attempt > 0 {
+                    log::debug!(
+                        "[show_main_window] runtime re-tracked main window after {} retries",
+                        attempt
+                    );
+                }
+                return Some(window);
+            }
+            if attempt + 1 < ATTEMPTS {
+                std::thread::sleep(BACKOFF);
+            }
+        }
+        None
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        app.get_webview_window("main")
+    }
+}
+
 fn show_main_window(app: &AppHandle<AppRuntime>) -> Result<(), String> {
     // On Windows: surface the OS top-level Chrome_WidgetWin_1 frame BEFORE
     // any Tauri lookups. After our close handler's SW_HIDE the runtime
@@ -1177,7 +1251,10 @@ fn show_main_window(app: &AppHandle<AppRuntime>) -> Result<(), String> {
     // and the early `?` below would abort before SW_SHOW fires (#1607).
     // EnumWindows + SW_SHOW operates directly on the OS HWND that
     // survived independently, and the runtime re-tracks the window once
-    // it's visible again.
+    // it's visible again — but re-tracking lands on the next event-loop
+    // tick, not synchronously with SW_SHOW. `get_main_webview_window_with_retry`
+    // bounds the wait to ~50 ms total so the tray callback can pick up the
+    // re-tracked window without re-emitting OPENHUMAN-TAURI-3A.
     #[cfg(target_os = "windows")]
     {
         set_main_window_hidden(false);
@@ -1186,8 +1263,7 @@ fn show_main_window(app: &AppHandle<AppRuntime>) -> Result<(), String> {
             let _ = webview.set_focus();
         }
     }
-    let window = app
-        .get_webview_window("main")
+    let window = get_main_webview_window_with_retry(app)
         .ok_or_else(|| "main window not found".to_string())?;
     window
         .show()
@@ -3386,6 +3462,41 @@ mod tests {
             Some(v) => std::env::set_var("OPENHUMAN_CORE_RPC_URL", v),
             None => std::env::remove_var("OPENHUMAN_CORE_RPC_URL"),
         }
+    }
+
+    #[test]
+    fn reset_local_data_windows_file_lock_error_codes_are_recognized() {
+        assert!(is_windows_file_lock_raw_os_error(Some(32)));
+        assert!(is_windows_file_lock_raw_os_error(Some(33)));
+        assert!(!is_windows_file_lock_raw_os_error(Some(5)));
+        assert!(!is_windows_file_lock_raw_os_error(None));
+    }
+
+    #[test]
+    fn reset_local_data_delete_error_keeps_generic_message_for_other_errors() {
+        let err = std::io::Error::from(std::io::ErrorKind::PermissionDenied);
+        let msg = reset_local_data_delete_error(
+            "current openhuman dir",
+            std::path::Path::new("/tmp/openhuman"),
+            &err,
+        );
+
+        assert!(msg.starts_with("Failed to remove current openhuman dir at /tmp/openhuman:"));
+        assert!(!msg.contains("Close all OpenHuman windows and try again"));
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn reset_local_data_delete_error_explains_windows_file_locks() {
+        let err = std::io::Error::from_raw_os_error(32);
+        let msg = reset_local_data_delete_error(
+            "current openhuman dir",
+            std::path::Path::new("C:\\Users\\me\\.openhuman"),
+            &err,
+        );
+
+        assert!(msg.contains("locked by another OpenHuman window or process"));
+        assert!(msg.contains("Close all OpenHuman windows and try again"));
     }
 
     /// Tests for setup_tray conditional compilation
