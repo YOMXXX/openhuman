@@ -179,6 +179,8 @@ const es5: TranslationMap = {
   'settings.developerMenu.tools.title': 'Herramientas',
   'settings.developerMenu.tools.desc':
     'Activa o desactiva las capacidades que OpenHuman puede usar en tu nombre',
+  'settings.developerMenu.actionBudget.title': 'Action Budget',
+  'settings.developerMenu.actionBudget.desc': 'Set the local hourly cap for tool actions',
   'settings.developerMenu.agentChat.title': 'Chat del agente',
   'settings.developerMenu.agentChat.desc':
     'Prueba conversaciones del agente con ajustes de modelo y temperatura',
@@ -206,6 +208,17 @@ const es5: TranslationMap = {
   'settings.developerMenu.integrationTriggers.title': 'Disparadores de integración',
   'settings.developerMenu.integrationTriggers.desc':
     'Configura los ajustes de triaje de IA para disparadores de integración de Composio',
+  'settings.actionBudget.title': 'Action Budget',
+  'settings.actionBudget.activeLimit': 'Active limit',
+  'settings.actionBudget.sideEffectingActions': 'Side-effecting tool actions',
+  'settings.actionBudget.actionsPerHour': 'actions/hour',
+  'settings.actionBudget.actionsPerHourLabel': 'Actions per hour',
+  'settings.actionBudget.desktopOnly': 'Action Budget is available in the desktop app.',
+  'settings.actionBudget.loadFailed': 'Failed to load action budget.',
+  'settings.actionBudget.saveFailed': 'Failed to save action budget.',
+  'settings.actionBudget.validation': 'Enter a whole number from 1 to 1000.',
+  'settings.actionBudget.saved': 'Saved',
+  'settings.actionBudget.saving': 'Saving...',
   'settings.appearance.menuDesc': 'Elige claro, oscuro o igualar el tema del sistema',
   'settings.mascot.active': 'Activo',
   'settings.mascot.characterDesc': 'Descripción del personaje',

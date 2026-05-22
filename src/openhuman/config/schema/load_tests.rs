@@ -547,6 +547,27 @@ fn env_overlay_temperature_accepts_valid_and_ignores_out_of_range_or_garbage() {
 }
 
 #[test]
+fn env_overlay_autonomy_max_actions_per_hour_accepts_valid_u32() {
+    let mut cfg = Config::default();
+    cfg.autonomy.max_actions_per_hour = 20;
+
+    cfg.apply_env_overlay_with(&HashMapEnv::new().with("OPENHUMAN_MAX_ACTIONS_PER_HOUR", "64"));
+    assert_eq!(cfg.autonomy.max_actions_per_hour, 64);
+
+    cfg.apply_env_overlay_with(&HashMapEnv::new().with("OPENHUMAN_MAX_ACTIONS_PER_HOUR", "  "));
+    assert_eq!(
+        cfg.autonomy.max_actions_per_hour, 64,
+        "blank env value must leave the configured limit unchanged"
+    );
+
+    cfg.apply_env_overlay_with(&HashMapEnv::new().with("OPENHUMAN_MAX_ACTIONS_PER_HOUR", "NaN"));
+    assert_eq!(
+        cfg.autonomy.max_actions_per_hour, 64,
+        "invalid env value must leave the configured limit unchanged"
+    );
+}
+
+#[test]
 fn env_overlay_reasoning_enabled_recognises_truthy_falsy_and_ignores_garbage() {
     let mut cfg = Config::default();
     cfg.runtime.reasoning_enabled = None;

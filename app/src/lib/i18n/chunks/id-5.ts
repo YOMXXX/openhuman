@@ -177,6 +177,8 @@ const id5: TranslationMap = {
   'settings.developerMenu.tools.title': 'Alat',
   'settings.developerMenu.tools.desc':
     'Aktifkan atau nonaktifkan kemampuan yang bisa digunakan OpenHuman atas nama Anda',
+  'settings.developerMenu.actionBudget.title': 'Action Budget',
+  'settings.developerMenu.actionBudget.desc': 'Set the local hourly cap for tool actions',
   'settings.developerMenu.agentChat.title': 'Chat Agen',
   'settings.developerMenu.agentChat.desc':
     'Uji percakapan agen dengan override model dan temperatur',
@@ -202,6 +204,17 @@ const id5: TranslationMap = {
   'settings.developerMenu.integrationTriggers.title': 'Pemicu Integrasi',
   'settings.developerMenu.integrationTriggers.desc':
     'Atur pengaturan triase AI untuk pemicu integrasi Composio',
+  'settings.actionBudget.title': 'Action Budget',
+  'settings.actionBudget.activeLimit': 'Active limit',
+  'settings.actionBudget.sideEffectingActions': 'Side-effecting tool actions',
+  'settings.actionBudget.actionsPerHour': 'actions/hour',
+  'settings.actionBudget.actionsPerHourLabel': 'Actions per hour',
+  'settings.actionBudget.desktopOnly': 'Action Budget is available in the desktop app.',
+  'settings.actionBudget.loadFailed': 'Failed to load action budget.',
+  'settings.actionBudget.saveFailed': 'Failed to save action budget.',
+  'settings.actionBudget.validation': 'Enter a whole number from 1 to 1000.',
+  'settings.actionBudget.saved': 'Saved',
+  'settings.actionBudget.saving': 'Saving...',
   'settings.appearance.menuDesc': 'Pilih terang, gelap, atau ikuti tema sistem',
   'settings.mascot.active': 'Aktif',
   'settings.mascot.characterDesc': 'Deskripsi karakter',

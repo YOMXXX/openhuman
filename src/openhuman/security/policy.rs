@@ -1036,7 +1036,10 @@ impl SecurityPolicy {
                         "[openhuman:policy] Operation '{}' blocked: rate limit exceeded",
                         operation_name
                     );
-                    return Err("Rate limit exceeded: action budget exhausted".to_string());
+                    return Err(format!(
+                        "Rate limit exceeded: action budget exhausted ({} actions/hour). Increase the limit in Settings -> Advanced -> Action Budget or wait for the rolling one-hour window to refill.",
+                        self.max_actions_per_hour
+                    ));
                 }
 
                 log::debug!(

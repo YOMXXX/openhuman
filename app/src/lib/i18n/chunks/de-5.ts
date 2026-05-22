@@ -184,6 +184,8 @@ const de5: TranslationMap = {
   'settings.developerMenu.tools.title': 'Werkzeuge',
   'settings.developerMenu.tools.desc':
     'Aktiviere oder deaktiviere Funktionen, die OpenHuman in deinem Namen nutzen kann',
+  'settings.developerMenu.actionBudget.title': 'Action Budget',
+  'settings.developerMenu.actionBudget.desc': 'Set the local hourly cap for tool actions',
   'settings.developerMenu.agentChat.title': 'Agenten-Chat',
   'settings.developerMenu.agentChat.desc':
     'Test-Agent-Konversation mit Modell- und Temperaturüberschreibungen',
@@ -233,6 +235,17 @@ const de5: TranslationMap = {
   'settings.mcpServer.clientZed': 'Zed',
   'settings.mcpServer.configFilePath': 'Konfigurationsdatei',
   'settings.mcpServer.clientSelectorAriaLabel': 'MCP-Client-Auswahl',
+  'settings.actionBudget.title': 'Action Budget',
+  'settings.actionBudget.activeLimit': 'Active limit',
+  'settings.actionBudget.sideEffectingActions': 'Side-effecting tool actions',
+  'settings.actionBudget.actionsPerHour': 'actions/hour',
+  'settings.actionBudget.actionsPerHourLabel': 'Actions per hour',
+  'settings.actionBudget.desktopOnly': 'Action Budget is available in the desktop app.',
+  'settings.actionBudget.loadFailed': 'Failed to load action budget.',
+  'settings.actionBudget.saveFailed': 'Failed to save action budget.',
+  'settings.actionBudget.validation': 'Enter a whole number from 1 to 1000.',
+  'settings.actionBudget.saved': 'Saved',
+  'settings.actionBudget.saving': 'Saving...',
   'settings.appearance.menuDesc': 'Wähle hell, dunkel oder passend zu deinem Systemthema',
   'settings.mascot.active': 'Aktiv',
   'settings.mascot.characterDesc': 'Charakterbeschreibung',
@@ -523,28 +536,6 @@ const de5: TranslationMap = {
   'settings.mascot.colorYellow': 'Gelb',
   'settings.mascot.libraryUnavailable': 'OpenHuman Bibliothek nicht verfügbar',
   'settings.mascot.title': 'OpenHuman',
-  'settings.developerMenu.mcpServer.title': 'MCP-Server',
-  'settings.developerMenu.mcpServer.desc':
-    'Externe MCP-Clients für die Verbindung zu OpenHuman konfigurieren',
-  'settings.mcpServer.title': 'MCP-Server',
-  'settings.mcpServer.toolsSectionTitle': 'Verfügbare Tools',
-  'settings.mcpServer.toolsSectionDesc':
-    'Tools, die über den MCP-stdio-Server bereitgestellt werden, wenn openhuman-core mcp läuft',
-  'settings.mcpServer.configSectionTitle': 'Client-Konfiguration',
-  'settings.mcpServer.configSectionDesc':
-    'Wähle deinen MCP-Client, um den passenden Konfigurations-Snippet zu erzeugen',
-  'settings.mcpServer.copySnippet': 'In Zwischenablage kopieren',
-  'settings.mcpServer.copied': 'Kopiert!',
-  'settings.mcpServer.openConfigFile': 'Konfigurationsdatei öffnen',
-  'settings.mcpServer.binaryPathNotFound':
-    'OpenHuman-Binary nicht gefunden. Bei Quellbau bitte mit `cargo build --bin openhuman-core` bauen.',
-  'settings.mcpServer.openConfigError': 'Konfigurationsdatei konnte nicht geöffnet werden',
-  'settings.mcpServer.clientClaudeDesktop': 'Claude Desktop',
-  'settings.mcpServer.clientCursor': 'Cursor',
-  'settings.mcpServer.clientCodex': 'Codex',
-  'settings.mcpServer.clientZed': 'Zed',
-  'settings.mcpServer.configFilePath': 'Konfigurationsdatei',
-  'settings.mcpServer.clientSelectorAriaLabel': 'MCP-Client-Auswahl',
 };
 
 export default de5;

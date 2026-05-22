@@ -5,6 +5,7 @@ export const CORE_RPC_METHODS = {
   configGetRuntimeFlags: 'openhuman.config_get_runtime_flags',
   configSetBrowserAllowAll: 'openhuman.config_set_browser_allow_all',
   configUpdateAnalyticsSettings: 'openhuman.config_update_analytics_settings',
+  configUpdateAutonomySettings: 'openhuman.config_update_autonomy_settings',
   configUpdateBrowserSettings: 'openhuman.config_update_browser_settings',
   configUpdateComposioTriggerSettings: 'openhuman.config_update_composio_trigger_settings',
   configUpdateLocalAiSettings: 'openhuman.config_update_local_ai_settings',
@@ -37,6 +38,7 @@ export const LEGACY_METHOD_ALIASES: Record<string, CoreRpcMethod> = {
   'openhuman.ping': CORE_RPC_METHODS.corePing,
   'openhuman.set_browser_allow_all': CORE_RPC_METHODS.configSetBrowserAllowAll,
   'openhuman.update_analytics_settings': CORE_RPC_METHODS.configUpdateAnalyticsSettings,
+  'openhuman.update_autonomy_settings': CORE_RPC_METHODS.configUpdateAutonomySettings,
   'openhuman.update_browser_settings': CORE_RPC_METHODS.configUpdateBrowserSettings,
   'openhuman.update_composio_trigger_settings':
     CORE_RPC_METHODS.configUpdateComposioTriggerSettings,
