@@ -112,6 +112,16 @@ allow = [
     "reveal_logs_folder",
 
     # =========================
+    # WORKSPACE FILES
+    # =========================
+    # Opens, reveals, or previews files only after resolving a
+    # workspace-relative path against the active OpenHuman workspace and
+    # verifying the canonical target still stays inside it.
+    "open_workspace_path",
+    "reveal_workspace_path",
+    "preview_workspace_text",
+
+    # =========================
     # GOOGLE MEET
     # =========================
     # Meet call: open / close a dedicated CEF webview window pointed at a
