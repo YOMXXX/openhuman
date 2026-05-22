@@ -20,6 +20,7 @@ describe('workspaceLinks', () => {
     expect(parseWorkspaceHref('file:///etc/passwd')).toBeNull();
     expect(parseWorkspaceHref('workspace:../secret.txt')).toBeNull();
     expect(parseWorkspaceHref('workspace:docs/%2e%2e/secret.txt')).toBeNull();
+    expect(parseWorkspaceHref('workspace:docs/%00secret.txt')).toBeNull();
     expect(parseWorkspaceHref('workspace:C:/Users/me/secret.txt')).toBeNull();
   });
 

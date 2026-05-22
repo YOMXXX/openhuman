@@ -150,7 +150,7 @@ From **`screen_capture/mod.rs`**. Backs the in-page `getDisplayMedia` shim in `w
 
 ### Workspace file links
 
-From **`workspace_paths.rs`**. These commands accept workspace-relative paths only. The shell resolves each path against the active OpenHuman workspace, canonicalizes the target, and rejects traversal, absolute paths, URI-like prefixes, and symlink escapes before opening or reading anything.
+From **`workspace_paths.rs`** (closes `#1402`). These commands accept workspace-relative paths only. The shell resolves each path against the active OpenHuman workspace, canonicalizes the target, and rejects traversal, absolute paths, URI-like prefixes, and symlink escapes before opening or reading anything.
 
 | Command                  | Purpose                                                                |
 | ------------------------ | ---------------------------------------------------------------------- |

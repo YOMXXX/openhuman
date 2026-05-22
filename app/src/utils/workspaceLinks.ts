@@ -19,6 +19,7 @@ export function parseWorkspaceHref(rawHref?: string | null): WorkspaceLinkTarget
   } catch {
     return null;
   }
+  if (decoded.includes('\0')) return null;
 
   const normalized = decoded.replace(/\\/g, '/').replace(/^\/+/, '');
   if (!normalized || WINDOWS_DRIVE_RE.test(normalized)) return null;
