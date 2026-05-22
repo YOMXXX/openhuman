@@ -37,6 +37,12 @@ describe('composioToolkitMeta', () => {
     expect(feishu.slug).toBe('larksuite');
   });
 
+  it('documents Instagram Business account requirement and Meta 429 guidance', () => {
+    const meta = composioToolkitMeta('instagram');
+    expect(meta.description).toMatch(/Business or Creator/i);
+    expect(meta.description).toMatch(/429/i);
+  });
+
   it('falls back cleanly for unknown slugs', () => {
     const meta = composioToolkitMeta('my_custom_toolkit');
 
