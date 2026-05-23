@@ -1,7 +1,6 @@
 use super::{
-    core_not_ready_error, current_rpc_token, default_core_port, generate_rpc_token,
-    is_expected_port_clash, is_openhuman_root_body, parse_lsof_pid, parse_netstat_pid,
-    CoreProcessHandle,
+    current_rpc_token, default_core_port, generate_rpc_token, is_expected_port_clash,
+    is_openhuman_root_body, parse_lsof_pid, parse_netstat_pid, CoreProcessHandle,
 };
 use std::sync::{Mutex, MutexGuard, OnceLock};
 
@@ -62,16 +61,6 @@ fn core_process_handle_new_creates_instance() {
     let handle = CoreProcessHandle::new(9999);
     assert_eq!(handle.port(), 9999);
     assert_eq!(handle.rpc_url(), "http://127.0.0.1:9999/rpc");
-}
-
-#[test]
-fn core_not_ready_error_includes_startup_diagnostics() {
-    let message = core_not_ready_error(7788, true, 2);
-
-    assert!(message.contains("core process did not become ready"));
-    assert!(message.contains("port=7788"));
-    assert!(message.contains("ready_signal=received"));
-    assert!(message.contains("attempt=2"));
 }
 
 #[test]
@@ -383,6 +372,58 @@ fn send_terminate_signal_cancels_shutdown_token() {
         assert!(
             handle.shutdown_token_is_cancelled().await,
             "send_terminate_signal must cancel graceful Axum shutdown before aborting the task"
+        );
+    });
+}
+
+#[test]
+fn startup_timeout_cleanup_aborts_task_and_clears_slot() {
+    let rt = tokio::runtime::Runtime::new().expect("runtime");
+    rt.block_on(async {
+        let handle = CoreProcessHandle::new(19006);
+        let task = tokio::spawn(async {
+            tokio::time::sleep(tokio::time::Duration::from_secs(60)).await;
+            Ok::<(), anyhow::Error>(())
+        });
+
+        {
+            let mut guard = handle.task.lock().await;
+            *guard = Some(task);
+        }
+
+        let message = handle.cleanup_startup_timeout(false, false, 2).await;
+
+        assert!(
+            message.contains("core process did not become ready within"),
+            "timeout message should include the readiness budget: {message}"
+        );
+        assert!(
+            message.contains("ready_signal=false"),
+            "timeout message should include ready signal state: {message}"
+        );
+        assert!(
+            message.contains("port=19006"),
+            "timeout message should include RPC port: {message}"
+        );
+        assert!(
+            message.contains("port_open=false"),
+            "timeout message should include final port state: {message}"
+        );
+        assert!(
+            message.contains("task_state=running"),
+            "timeout message should include task state: {message}"
+        );
+        assert!(
+            message.contains("attempt=2"),
+            "timeout message should include startup attempt: {message}"
+        );
+        assert!(
+            handle.task.lock().await.is_none(),
+            "cleanup must clear the managed task slot so retry can spawn fresh"
+        );
+        assert!(
+            handle.shutdown_token_is_cancelled().await,
+            "cleanup must cancel the startup token before aborting"
         );
     });
 }

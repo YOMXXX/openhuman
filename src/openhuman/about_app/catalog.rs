@@ -1182,16 +1182,6 @@ const CAPABILITIES: &[Capability] = &[
         status: CapabilityStatus::Beta,
         privacy: LOCAL_CREDENTIALS,
     },
-    Capability {
-        id: "automation.welcome_agent",
-        name: "Welcome Message",
-        domain: "automation",
-        category: CapabilityCategory::Automation,
-        description: "Conversational onboarding agent that learns about the user's intent and daily tools before guiding them through personalized setup.",
-        how_to: "Automatic — triggered once after onboarding.",
-        status: CapabilityStatus::Beta,
-        privacy: None,
-    },
     // ── Update ──────────────────────────────────────────────────────────────
     // ── Meet ────────────────────────────────────────────────────────────────
     Capability {
@@ -1228,6 +1218,47 @@ const CAPABILITIES: &[Capability] = &[
             leaves_device: true,
             data_kind: PrivacyDataKind::Derived,
             destinations: &["Google Meet", "ElevenLabs (STT/TTS via hosted backend)"],
+        }),
+    },
+    // ── Mobile (iOS client) ─────────────────────────────────────────────────
+    Capability {
+        id: "mobile.device_pairing",
+        name: "Device Pairing",
+        domain: "devices",
+        category: CapabilityCategory::Mobile,
+        description: "Pair iOS phones with the desktop core via QR code. The desktop generates a \
+                      short-lived pairing token; the iOS app scans the QR, completes an X25519 \
+                      key agreement, and stores the session for reconnects.",
+        how_to: "Settings > Devices > Pair iPhone",
+        status: CapabilityStatus::Beta,
+        privacy: None,
+    },
+    Capability {
+        id: "mobile.ios_client",
+        name: "iOS Client",
+        domain: "devices",
+        category: CapabilityCategory::Mobile,
+        description: "iOS app for chatting with your assistant on the go. Connects to the desktop \
+                      core via LAN HTTP, an E2E-encrypted socket.io tunnel, or a cloud HTTP \
+                      fallback — no Rust core ships on the device.",
+        how_to: "Pair via Settings > Devices, then open the OpenHuman iOS app.",
+        status: CapabilityStatus::Beta,
+        privacy: None,
+    },
+    Capability {
+        id: "mobile.push_to_talk",
+        name: "Push-to-Talk",
+        domain: "devices",
+        category: CapabilityCategory::Mobile,
+        description: "Hold-to-talk voice input on iOS. Activates AVAudioEngine and \
+                      SFSpeechRecognizer on the device; partial transcripts appear while \
+                      speaking and the final transcript is sent as a chat message.",
+        how_to: "Hold the microphone button on the iOS mascot screen.",
+        status: CapabilityStatus::Beta,
+        privacy: Some(CapabilityPrivacy {
+            leaves_device: false,
+            data_kind: PrivacyDataKind::Raw,
+            destinations: &[],
         }),
     },
     // ── Update ──────────────────────────────────────────────────────────────

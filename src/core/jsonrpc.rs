@@ -1696,6 +1696,11 @@ fn register_domain_subscribers(
         // Once-guarded registrar so domain-level startup can't duplicate it.
         crate::openhuman::channels::proactive::register_web_only_proactive_subscriber();
 
+        // Device tunnel subscriber: handles tunnel:frame handshakes, peer-status
+        // events, and register acks. Must be registered before any tunnel:frame
+        // events can arrive.
+        crate::openhuman::devices::bus::register_device_tunnel_subscriber();
+
         // Native request handlers — typed in-process request/response.
         // The agent `agent.run_turn` handler is what channel dispatch
         // calls instead of importing `run_tool_call_loop` directly.
@@ -1803,40 +1808,8 @@ pub async fn bootstrap_core_runtime(embedded_core: bool) {
         );
     }
 
-    // --- Session storage layout migration -------------------------------
-    // One-shot move from `session_raw/{DDMMYYYY}/` (≤ 0.53.4) to the new
-    // flat `session_raw/{stem}.jsonl` layout, plus DDMMYYYY → YYYY_MM_DD
-    // for the human-readable `sessions/` companions. Idempotent via a
-    // marker file at `state/migrations/session_layout_v1.done`, so this
-    // costs one stat() on every subsequent boot.
-    match crate::openhuman::agent::harness::session::migrate_session_layout_if_needed(
-        &workspace_dir,
-    ) {
-        Ok(outcome) if outcome.already_done => {
-            log::debug!("[runtime] session_layout migration already applied");
-        }
-        Ok(outcome) => {
-            log::info!(
-                "[runtime] session_layout migration applied: jsonl_moved={} md_moved={} pruned_dirs={} warnings={}",
-                outcome.jsonl_moved,
-                outcome.md_moved,
-                outcome.legacy_dirs_pruned,
-                outcome.warnings.len(),
-            );
-            for w in &outcome.warnings {
-                log::warn!("[runtime] session_layout migration warning: {w}");
-            }
-        }
-        Err(err) => {
-            // Don't bring down startup over a transcript-storage migration.
-            // The transcript module's legacy fallback covers the unmigrated
-            // case for one release window.
-            log::warn!(
-                "[runtime] session_layout migration failed: {err} — \
-                 falling back to in-place legacy reads"
-            );
-        }
-    }
+    // --- Workspace migrations --------------------------------------------
+    crate::openhuman::startup::run_workspace_migrations(&workspace_dir);
 
     // --- Socket manager bootstrap ---
     let socket_mgr = Arc::new(SocketManager::new());

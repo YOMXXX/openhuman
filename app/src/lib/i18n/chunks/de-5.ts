@@ -208,6 +208,12 @@ const de5: TranslationMap = {
   'settings.developerMenu.composioRouting.title': 'Composio Routing (Direktmodus)',
   'settings.developerMenu.composioRouting.desc':
     'Bring deinen eigenen Composio API-Schlüssel mit und leite Anrufe direkt an backend.composio.dev weiter',
+  'settings.developerMenu.mcpServer.title': 'MCP Server',
+  'settings.developerMenu.mcpServer.desc':
+    'Konfiguriere externe MCP-Clients für die Verbindung mit OpenHuman',
+  'settings.developerMenu.autonomy.title': 'Agent-Autonomie',
+  'settings.developerMenu.autonomy.desc':
+    'Aktionsraten-Limits und Sicherheitsschwellen für Werkzeuge',
   'settings.developerMenu.integrationTriggers.title': 'Integrationsauslöser',
   'settings.developerMenu.integrationTriggers.desc':
     'Konfiguriere KI-Triage-Einstellungen für Composio-Integrationsauslöser',
@@ -215,6 +221,10 @@ const de5: TranslationMap = {
   'settings.mascot.active': 'Aktiv',
   'settings.mascot.characterDesc': 'Charakterbeschreibung',
   'settings.mascot.characterHeading': 'Zeichenüberschrift',
+  'settings.mascot.customGifError':
+    'Gib eine HTTPS-.gif-URL, eine Loopback-HTTP-.gif-URL, eine file://-.gif-URL oder einen lokalen .gif-Pfad ein.',
+  'settings.mascot.customGifHeading': 'Eigener GIF-Avatar',
+  'settings.mascot.customGifLabel': 'URL des eigenen GIF-Avatars',
   'settings.mascot.colorDesc': 'Farbbeschreibung',
   'settings.mascot.colorHeading': 'Farbüberschrift',
   'settings.mascot.loadingLibrary': 'OpenHuman-Bibliothek wird geladen…',
@@ -504,22 +514,19 @@ const de5: TranslationMap = {
   'settings.mascot.colorYellow': 'Gelb',
   'settings.mascot.libraryUnavailable': 'OpenHuman Bibliothek nicht verfügbar',
   'settings.mascot.title': 'OpenHuman',
-  'settings.developerMenu.mcpServer.title': 'MCP-Server',
-  'settings.developerMenu.mcpServer.desc':
-    'Externe MCP-Clients zur Verbindung mit OpenHuman konfigurieren',
-  'settings.mcpServer.title': 'MCP-Server',
-  'settings.mcpServer.toolsSectionTitle': 'Verfügbare Tools',
+  'settings.mcpServer.title': 'MCP Server',
+  'settings.mcpServer.toolsSectionTitle': 'Verfuegbare Werkzeuge',
   'settings.mcpServer.toolsSectionDesc':
-    'Tools, die über den MCP-Stdio-Server bereitgestellt werden, wenn openhuman-core mcp ausgeführt wird',
+    'Werkzeuge, die ueber den MCP-stdio-Server bereitgestellt werden, wenn openhuman-core mcp ausgefuehrt wird',
   'settings.mcpServer.configSectionTitle': 'Client-Konfiguration',
   'settings.mcpServer.configSectionDesc':
-    'Wähle deinen MCP-Client aus, um den passenden Konfigurations-Schnipsel zu erzeugen',
+    'Waehle deinen MCP-Client aus, um den passenden Konfigurationsausschnitt zu erzeugen',
   'settings.mcpServer.copySnippet': 'In die Zwischenablage kopieren',
   'settings.mcpServer.copied': 'Kopiert!',
-  'settings.mcpServer.openConfigFile': 'Konfigurationsdatei öffnen',
+  'settings.mcpServer.openConfigFile': 'Konfigurationsdatei oeffnen',
   'settings.mcpServer.binaryPathNotFound':
-    'OpenHuman-Binärdatei nicht gefunden. Wenn du aus dem Quellcode arbeitest, baue sie mit: cargo build --bin openhuman-core',
-  'settings.mcpServer.openConfigError': 'Konfigurationsdatei konnte nicht geöffnet werden',
+    'OpenHuman-Binaerdatei nicht gefunden. Wenn du aus dem Quellcode arbeitest, baue sie mit: cargo build --bin openhuman-core',
+  'settings.mcpServer.openConfigError': 'Konfigurationsdatei konnte nicht geoeffnet werden',
   'settings.mcpServer.clientClaudeDesktop': 'Claude Desktop',
   'settings.mcpServer.clientCursor': 'Cursor',
   'settings.mcpServer.clientCodex': 'Codex',
