@@ -176,8 +176,6 @@ const bn5: TranslationMap = {
   'settings.developerMenu.tools.title': 'টুলস',
   'settings.developerMenu.tools.desc':
     'OpenHuman আপনার পক্ষ থেকে যে সক্ষমতাগুলি ব্যবহার করতে পারে সেগুলি চালু বা বন্ধ করুন',
-  'settings.developerMenu.actionBudget.title': 'Action Budget',
-  'settings.developerMenu.actionBudget.desc': 'Set the local hourly cap for tool actions',
   'settings.developerMenu.agentChat.title': 'এজেন্ট চ্যাট',
   'settings.developerMenu.agentChat.desc':
     'মডেল এবং টেম্পারেচার ওভাররাইডসহ এজেন্ট কথোপকথন পরীক্ষা করুন',
@@ -204,17 +202,6 @@ const bn5: TranslationMap = {
   'settings.developerMenu.integrationTriggers.title': 'ইন্টিগ্রেশন ট্রিগার',
   'settings.developerMenu.integrationTriggers.desc':
     'Composio ইন্টিগ্রেশন ট্রিগারের জন্য AI ট্রায়াজ সেটিংস কনফিগার করুন',
-  'settings.actionBudget.title': 'Action Budget',
-  'settings.actionBudget.activeLimit': 'Active limit',
-  'settings.actionBudget.sideEffectingActions': 'Side-effecting tool actions',
-  'settings.actionBudget.actionsPerHour': 'actions/hour',
-  'settings.actionBudget.actionsPerHourLabel': 'Actions per hour',
-  'settings.actionBudget.desktopOnly': 'Action Budget is available in the desktop app.',
-  'settings.actionBudget.loadFailed': 'Failed to load action budget.',
-  'settings.actionBudget.saveFailed': 'Failed to save action budget.',
-  'settings.actionBudget.validation': 'Enter a whole number from 1 to 1000.',
-  'settings.actionBudget.saved': 'Saved',
-  'settings.actionBudget.saving': 'Saving...',
   'settings.appearance.menuDesc': 'লাইট, ডার্ক বা সিস্টেম থিমের সাথে মিল বেছে নিন',
   'settings.mascot.active': 'সক্রিয়',
   'settings.mascot.characterDesc': 'চরিত্রের বিবরণ',

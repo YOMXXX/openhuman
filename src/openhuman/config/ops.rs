@@ -325,11 +325,6 @@ pub struct ModelSettingsPatch {
 }
 
 #[derive(Debug, Clone, Default)]
-pub struct AutonomySettingsPatch {
-    pub max_actions_per_hour: Option<u32>,
-}
-
-#[derive(Debug, Clone, Default)]
 pub struct MemorySettingsPatch {
     pub backend: Option<String>,
     pub auto_save: Option<bool>,
@@ -377,6 +372,11 @@ pub struct AnalyticsSettingsPatch {
 #[derive(Debug, Clone, Default)]
 pub struct MeetSettingsPatch {
     pub auto_orchestrator_handoff: Option<bool>,
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct AutonomySettingsPatch {
+    pub max_actions_per_hour: Option<u32>,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -634,7 +634,6 @@ pub async fn apply_memory_settings(
     ))
 }
 
-/// Updates local autonomy and action budget settings in the configuration.
 /// Updates the screen intelligence settings in the configuration.
 pub async fn apply_screen_intelligence_settings(
     config: &mut Config,

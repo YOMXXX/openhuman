@@ -92,7 +92,7 @@ fn action_budget_error_mentions_limit_and_settings() {
 
     assert!(err.contains("Rate limit exceeded: action budget exhausted"));
     assert!(err.contains("0 actions/hour"));
-    assert!(err.contains("Settings -> Advanced -> Action Budget"));
+    assert!(err.contains("Settings -> Advanced -> Agent autonomy"));
 }
 
 // -- is_command_allowed -------------------------------------------

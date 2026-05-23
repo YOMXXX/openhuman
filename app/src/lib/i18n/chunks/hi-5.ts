@@ -176,8 +176,6 @@ const hi5: TranslationMap = {
   'settings.developerMenu.tools.title': 'टूल्स',
   'settings.developerMenu.tools.desc':
     'OpenHuman आपकी ओर से जिन क्षमताओं का उपयोग कर सकता है, उन्हें सक्षम या अक्षम करें',
-  'settings.developerMenu.actionBudget.title': 'Action Budget',
-  'settings.developerMenu.actionBudget.desc': 'Set the local hourly cap for tool actions',
   'settings.developerMenu.agentChat.title': 'एजेंट चैट',
   'settings.developerMenu.agentChat.desc':
     'मॉडल और तापमान ओवरराइड के साथ एजेंट वार्तालाप का परीक्षण करें',
@@ -204,17 +202,6 @@ const hi5: TranslationMap = {
   'settings.developerMenu.integrationTriggers.title': 'इंटीग्रेशन ट्रिगर्स',
   'settings.developerMenu.integrationTriggers.desc':
     'Composio इंटीग्रेशन ट्रिगर्स के लिए AI ट्रायेज सेटिंग्स कॉन्फ़िगर करें',
-  'settings.actionBudget.title': 'Action Budget',
-  'settings.actionBudget.activeLimit': 'Active limit',
-  'settings.actionBudget.sideEffectingActions': 'Side-effecting tool actions',
-  'settings.actionBudget.actionsPerHour': 'actions/hour',
-  'settings.actionBudget.actionsPerHourLabel': 'Actions per hour',
-  'settings.actionBudget.desktopOnly': 'Action Budget is available in the desktop app.',
-  'settings.actionBudget.loadFailed': 'Failed to load action budget.',
-  'settings.actionBudget.saveFailed': 'Failed to save action budget.',
-  'settings.actionBudget.validation': 'Enter a whole number from 1 to 1000.',
-  'settings.actionBudget.saved': 'Saved',
-  'settings.actionBudget.saving': 'Saving...',
   'settings.appearance.menuDesc': 'लाइट, डार्क, या सिस्टम थीम से मिलान चुनें',
   'settings.mascot.active': 'एक्टिव',
   'settings.mascot.characterDesc': 'कैरेक्टर विवरण',
