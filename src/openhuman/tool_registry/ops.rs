@@ -36,8 +36,13 @@ pub fn list_tools() -> RpcOutcome<ToolRegistryList> {
 }
 
 /// Return redacted diagnostics for policy/tool visibility reviews.
-pub fn diagnostics() -> RpcOutcome<ToolPolicyDiagnostics> {
-    diagnostics_for_config(&Config::default())
+pub async fn diagnostics() -> Result<RpcOutcome<ToolPolicyDiagnostics>, String> {
+    log::debug!("[tool_registry] diagnostics loading_config");
+    let config = Config::load_or_init().await.map_err(|err| {
+        log::warn!("[tool_registry] diagnostics config_load_failed error={err}");
+        format!("failed to load config for tool registry diagnostics: {err}")
+    })?;
+    Ok(diagnostics_for_config(&config))
 }
 
 /// Return redacted diagnostics using a specific config snapshot.
@@ -464,7 +469,7 @@ mod tests {
 
     #[test]
     fn diagnostics_reports_inventory_and_policy_surfaces() {
-        let outcome = diagnostics();
+        let outcome = diagnostics_for_config(&Config::default());
 
         assert!(outcome.value.total_tools > 0);
         assert_eq!(outcome.value.total_tools, outcome.value.enabled_tools);
@@ -480,6 +485,39 @@ mod tests {
             .possible_write_surfaces
             .iter()
             .any(|tool_id| tool_id == "tools.composio_execute"));
+    }
+
+    #[tokio::test]
+    async fn diagnostics_loads_active_capability_provider_config() {
+        let _lock = crate::openhuman::config::TEST_ENV_LOCK.lock().unwrap();
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let _env = EnvRestore::set_path("OPENHUMAN_WORKSPACE", tmp.path());
+        std::fs::write(
+            tmp.path().join("config.toml"),
+            r#"
+[[capability_providers]]
+id = "Runtime Provider"
+display_name = "Runtime Provider"
+trust_state = "trusted"
+enabled = true
+"#,
+        )
+        .expect("write config");
+
+        let outcome = diagnostics().await.expect("diagnostics");
+
+        assert_eq!(outcome.value.capability_providers.total_providers, 1);
+        assert_eq!(outcome.value.capability_providers.enabled_providers, 1);
+        assert_eq!(outcome.value.capability_providers.trusted_providers, 1);
+        assert_eq!(
+            outcome.value.capability_providers.trusted_enabled_providers,
+            1
+        );
+        assert!(outcome
+            .value
+            .capability_providers
+            .registry_errors
+            .is_empty());
     }
 
     #[test]
@@ -642,6 +680,28 @@ mod tests {
             source_digest: None,
             trust_state,
             enabled,
+        }
+    }
+
+    struct EnvRestore {
+        key: &'static str,
+        previous: Option<std::ffi::OsString>,
+    }
+
+    impl EnvRestore {
+        fn set_path(key: &'static str, value: &std::path::Path) -> Self {
+            let previous = std::env::var_os(key);
+            std::env::set_var(key, value);
+            Self { key, previous }
+        }
+    }
+
+    impl Drop for EnvRestore {
+        fn drop(&mut self) {
+            match &self.previous {
+                Some(value) => std::env::set_var(self.key, value),
+                None => std::env::remove_var(self.key),
+            }
         }
     }
 }
