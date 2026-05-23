@@ -4,9 +4,11 @@ use serde_json::{json, Map, Value};
 
 use crate::core::all;
 use crate::core::{ControllerSchema, FieldSchema, TypeSchema};
+use crate::openhuman::config::Config;
 use crate::openhuman::mcp_server::McpToolSpec;
 use crate::rpc::RpcOutcome;
 
+use super::providers::capability_provider_diagnostics;
 use super::types::{
     ToolPolicyDiagnostics, ToolRegistryEntry, ToolRegistryHealth, ToolRegistryList,
     ToolRegistryTransport,
@@ -35,6 +37,11 @@ pub fn list_tools() -> RpcOutcome<ToolRegistryList> {
 
 /// Return redacted diagnostics for policy/tool visibility reviews.
 pub fn diagnostics() -> RpcOutcome<ToolPolicyDiagnostics> {
+    diagnostics_for_config(&Config::default())
+}
+
+/// Return redacted diagnostics using a specific config snapshot.
+pub fn diagnostics_for_config(config: &Config) -> RpcOutcome<ToolPolicyDiagnostics> {
     let tools = registry_entries();
     let total_tools = tools.len();
     let enabled_tools = tools.iter().filter(|entry| entry.enabled).count();
@@ -60,6 +67,7 @@ pub fn diagnostics() -> RpcOutcome<ToolPolicyDiagnostics> {
         json_rpc_tools,
         possible_write_surfaces,
         policy_surfaces,
+        capability_providers: capability_provider_diagnostics(config),
     };
     RpcOutcome::new(diagnostics, vec![])
 }
@@ -385,6 +393,9 @@ fn title_from_function(function: &str) -> String {
 mod tests {
     use super::*;
     use crate::core::{FieldSchema, TypeSchema};
+    use crate::openhuman::config::schema::{
+        CapabilityProviderConfig, CapabilityProviderTrustState, Config,
+    };
 
     #[test]
     fn registry_entries_include_mcp_and_controller_tools() {
@@ -442,6 +453,59 @@ mod tests {
             .possible_write_surfaces
             .iter()
             .any(|tool_id| tool_id == "tools.composio_execute"));
+    }
+
+    #[test]
+    fn diagnostics_for_config_reports_capability_provider_summary() {
+        let mut config = Config::default();
+        config.capability_providers = vec![
+            capability_provider(
+                "trusted-enabled",
+                CapabilityProviderTrustState::Trusted,
+                true,
+            ),
+            capability_provider(
+                "trusted-disabled",
+                CapabilityProviderTrustState::Trusted,
+                false,
+            ),
+            capability_provider(
+                "untrusted-enabled",
+                CapabilityProviderTrustState::Untrusted,
+                true,
+            ),
+        ];
+
+        let outcome = diagnostics_for_config(&config);
+
+        assert_eq!(outcome.value.capability_providers.total_providers, 3);
+        assert_eq!(outcome.value.capability_providers.enabled_providers, 2);
+        assert_eq!(outcome.value.capability_providers.trusted_providers, 2);
+        assert_eq!(
+            outcome.value.capability_providers.trusted_enabled_providers,
+            1
+        );
+        assert!(outcome
+            .value
+            .capability_providers
+            .registry_errors
+            .is_empty());
+    }
+
+    #[test]
+    fn diagnostics_for_config_reports_capability_provider_errors() {
+        let mut config = Config::default();
+        config.capability_providers = vec![
+            capability_provider("Acme Tools", CapabilityProviderTrustState::Trusted, true),
+            capability_provider("acme-tools", CapabilityProviderTrustState::Trusted, true),
+        ];
+
+        let outcome = diagnostics_for_config(&config);
+
+        assert_eq!(outcome.value.capability_providers.total_providers, 2);
+        assert_eq!(outcome.value.capability_providers.enabled_providers, 0);
+        assert!(outcome.value.capability_providers.registry_errors[0].contains("duplicate"));
+        assert!(outcome.value.capability_providers.registry_errors[0].contains("acme-tools"));
     }
 
     #[test]
@@ -537,5 +601,20 @@ mod tests {
             schema["properties"]["max_results"]["description"],
             json!("Optional cap.")
         );
+    }
+
+    fn capability_provider(
+        id: &str,
+        trust_state: CapabilityProviderTrustState,
+        enabled: bool,
+    ) -> CapabilityProviderConfig {
+        CapabilityProviderConfig {
+            id: id.to_string(),
+            display_name: id.to_string(),
+            source_uri: None,
+            source_digest: None,
+            trust_state,
+            enabled,
+        }
     }
 }
