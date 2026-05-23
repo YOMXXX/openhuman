@@ -29,15 +29,51 @@ pub struct CapabilityProviderRegistry {
 impl CapabilityProviderRegistry {
     /// Build a normalized provider registry from the current config snapshot.
     pub fn from_config(config: &Config) -> Result<Self, CapabilityProviderRegistryError> {
+        log::trace!(
+            "[tool_registry] capability_provider_registry start configured_providers={}",
+            config.capability_providers.len()
+        );
+
         let mut providers = BTreeMap::new();
 
         for provider in &config.capability_providers {
-            let id = normalize_capability_provider_id(&provider.id)?;
+            let id = match normalize_capability_provider_id(&provider.id) {
+                Ok(id) => id,
+                Err(err) => {
+                    log::debug!(
+                        "[tool_registry] capability_provider_registry invalid_provider_id raw_id={:?} error={}",
+                        provider.id,
+                        err
+                    );
+                    return Err(err);
+                }
+            };
+            log::debug!(
+                "[tool_registry] capability_provider_registry normalized_provider raw_id={:?} provider_id={} enabled={} trust_state={:?}",
+                provider.id,
+                id,
+                provider.enabled,
+                provider.trust_state
+            );
+
             if providers.contains_key(&id) {
+                log::debug!(
+                    "[tool_registry] capability_provider_registry duplicate_provider_id provider_id={}",
+                    id
+                );
                 return Err(CapabilityProviderRegistryError::DuplicateId { id });
             }
 
-            let display_name = clean_string(&provider.display_name).unwrap_or_else(|| id.clone());
+            let display_name = match clean_string(&provider.display_name) {
+                Some(display_name) => display_name,
+                None => {
+                    log::debug!(
+                        "[tool_registry] capability_provider_registry display_name_empty provider_id={} fallback=provider_id",
+                        id
+                    );
+                    id.clone()
+                }
+            };
             let metadata = CapabilityProviderMetadata {
                 id: id.clone(),
                 display_name,
@@ -49,6 +85,10 @@ impl CapabilityProviderRegistry {
             providers.insert(id, metadata);
         }
 
+        log::debug!(
+            "[tool_registry] capability_provider_registry completed providers={}",
+            providers.len()
+        );
         Ok(Self { providers })
     }
 
@@ -77,6 +117,7 @@ pub fn normalize_capability_provider_id(
 ) -> Result<String, CapabilityProviderRegistryError> {
     let raw = raw.trim();
     if raw.is_empty() {
+        log::trace!("[tool_registry] normalize_capability_provider_id invalid_empty");
         return Err(CapabilityProviderRegistryError::InvalidId {
             raw: raw.to_string(),
         });
@@ -100,11 +141,22 @@ pub fn normalize_capability_provider_id(
         .to_string();
 
     if normalized.is_empty() || normalized.len() > MAX_PROVIDER_ID_LEN {
+        log::trace!(
+            "[tool_registry] normalize_capability_provider_id invalid raw_id={:?} normalized_id={:?} normalized_len={}",
+            raw,
+            normalized,
+            normalized.len()
+        );
         return Err(CapabilityProviderRegistryError::InvalidId {
             raw: raw.to_string(),
         });
     }
 
+    log::trace!(
+        "[tool_registry] normalize_capability_provider_id completed raw_id={:?} normalized_id={}",
+        raw,
+        normalized
+    );
     Ok(normalized)
 }
 
@@ -112,7 +164,15 @@ pub fn normalize_capability_provider_id(
 pub fn capability_provider_registry(
     config: &Config,
 ) -> Result<CapabilityProviderRegistry, CapabilityProviderRegistryError> {
-    CapabilityProviderRegistry::from_config(config)
+    let registry = CapabilityProviderRegistry::from_config(config);
+    if let Err(err) = &registry {
+        log::debug!(
+            "[tool_registry] capability_provider_registry failed configured_providers={} error={}",
+            config.capability_providers.len(),
+            err
+        );
+    }
+    registry
 }
 
 /// List configured external capability providers.
@@ -142,6 +202,10 @@ pub fn capability_provider_diagnostics(config: &Config) -> CapabilityProviderDia
     match capability_provider_registry(config) {
         Ok(registry) => {
             let providers = registry.list();
+            log::debug!(
+                "[tool_registry] capability_provider_diagnostics completed providers={}",
+                providers.len()
+            );
             CapabilityProviderDiagnostics {
                 total_providers: providers.len(),
                 enabled_providers: providers.iter().filter(|provider| provider.enabled).count(),
@@ -161,11 +225,18 @@ pub fn capability_provider_diagnostics(config: &Config) -> CapabilityProviderDia
                 registry_errors: Vec::new(),
             }
         }
-        Err(err) => CapabilityProviderDiagnostics {
-            total_providers: config.capability_providers.len(),
-            registry_errors: vec![err.to_string()],
-            ..CapabilityProviderDiagnostics::default()
-        },
+        Err(err) => {
+            log::debug!(
+                "[tool_registry] capability_provider_diagnostics registry_error configured_providers={} error={}",
+                config.capability_providers.len(),
+                err
+            );
+            CapabilityProviderDiagnostics {
+                total_providers: config.capability_providers.len(),
+                registry_errors: vec![err.to_string()],
+                ..CapabilityProviderDiagnostics::default()
+            }
+        }
     }
 }
 

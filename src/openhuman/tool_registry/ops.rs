@@ -42,6 +42,8 @@ pub fn diagnostics() -> RpcOutcome<ToolPolicyDiagnostics> {
 
 /// Return redacted diagnostics using a specific config snapshot.
 pub fn diagnostics_for_config(config: &Config) -> RpcOutcome<ToolPolicyDiagnostics> {
+    log::debug!("[tool_registry] diagnostics_for_config start");
+
     let tools = registry_entries();
     let total_tools = tools.len();
     let enabled_tools = tools.iter().filter(|entry| entry.enabled).count();
@@ -59,6 +61,17 @@ pub fn diagnostics_for_config(config: &Config) -> RpcOutcome<ToolPolicyDiagnosti
         .map(|entry| entry.tool_id.clone())
         .collect::<Vec<_>>();
     let policy_surfaces = policy_surface_ids();
+    let capability_providers = capability_provider_diagnostics(config);
+
+    log::trace!(
+        "[tool_registry] diagnostics_for_config counted total_tools={} enabled_tools={} mcp_stdio_tools={} json_rpc_tools={} possible_write_surfaces={} policy_surfaces={}",
+        total_tools,
+        enabled_tools,
+        mcp_stdio_tools,
+        json_rpc_tools,
+        possible_write_surfaces.len(),
+        policy_surfaces.len()
+    );
 
     let diagnostics = ToolPolicyDiagnostics {
         total_tools,
@@ -67,8 +80,22 @@ pub fn diagnostics_for_config(config: &Config) -> RpcOutcome<ToolPolicyDiagnosti
         json_rpc_tools,
         possible_write_surfaces,
         policy_surfaces,
-        capability_providers: capability_provider_diagnostics(config),
+        capability_providers,
     };
+    log::debug!(
+        "[tool_registry] diagnostics_for_config completed total_tools={} enabled_tools={} mcp_stdio_tools={} json_rpc_tools={} possible_write_surfaces={} policy_surfaces={} providers_total={} providers_enabled={} providers_trusted={} providers_trusted_enabled={} provider_errors={}",
+        diagnostics.total_tools,
+        diagnostics.enabled_tools,
+        diagnostics.mcp_stdio_tools,
+        diagnostics.json_rpc_tools,
+        diagnostics.possible_write_surfaces.len(),
+        diagnostics.policy_surfaces.len(),
+        diagnostics.capability_providers.total_providers,
+        diagnostics.capability_providers.enabled_providers,
+        diagnostics.capability_providers.trusted_providers,
+        diagnostics.capability_providers.trusted_enabled_providers,
+        diagnostics.capability_providers.registry_errors.len()
+    );
     RpcOutcome::new(diagnostics, vec![])
 }
 
