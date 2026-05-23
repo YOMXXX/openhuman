@@ -112,6 +112,32 @@ describe('<MemoryGraph />', () => {
     expect(mocks.openUrl).not.toHaveBeenCalled();
   });
 
+  it('logs workspace open failures without falling back to raw URL opens', async () => {
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    mocks.openWorkspacePath.mockRejectedValueOnce(new Error('open failed'));
+    const nodes = [
+      makeSummaryNode({
+        id: 'sum-open-fails',
+        tree_kind: 'topic',
+        tree_scope: 'workspace one',
+        level: 2,
+        file_basename: 'summary-A',
+      }),
+    ];
+
+    render(<MemoryGraph nodes={nodes} edges={[]} mode="tree" />);
+    fireEvent.click(screen.getByTestId('memory-graph-node-sum-open-fails'));
+
+    await waitFor(() => {
+      expect(errorSpy).toHaveBeenCalledWith(
+        '[memory-graph] openWorkspacePath failed',
+        expect.any(Error)
+      );
+    });
+    expect(mocks.openUrl).not.toHaveBeenCalled();
+    errorSpy.mockRestore();
+  });
+
   it('keeps non-Gmail source prefixes in summary workspace paths', async () => {
     const nodes = [
       makeSummaryNode({
@@ -156,6 +182,58 @@ describe('<MemoryGraph />', () => {
     );
   });
 
+  it('shows preview errors from the shared workspace preview command', async () => {
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    mocks.previewWorkspaceText.mockRejectedValueOnce(new Error('preview failed'));
+    const nodes = [
+      makeSummaryNode({
+        id: 'sum-preview-fails',
+        tree_kind: 'topic',
+        tree_scope: 'workspace one',
+        level: 2,
+        file_basename: 'summary-A',
+      }),
+    ];
+
+    render(<MemoryGraph nodes={nodes} edges={[]} mode="tree" />);
+    fireEvent.mouseEnter(screen.getByTestId('memory-graph-node-sum-preview-fails'));
+    fireEvent.click(screen.getByTestId('memory-graph-preview-sum-preview-fails'));
+
+    expect(await screen.findByTestId('memory-graph-preview')).toHaveTextContent('preview failed');
+    expect(errorSpy).toHaveBeenCalledWith(
+      '[memory-graph] previewWorkspaceText failed',
+      expect.any(Error)
+    );
+    errorSpy.mockRestore();
+  });
+
+  it('marks truncated summary previews in the preview panel', async () => {
+    mocks.previewWorkspaceText.mockResolvedValueOnce({
+      path: 'memory_tree/content/wiki/summaries/topic-workspace-one/L2/summary-A.md',
+      absolutePath:
+        '/Users/me/openhuman/memory_tree/content/wiki/summaries/topic-workspace-one/L2/summary-A.md',
+      contents: '# Summary',
+      truncated: true,
+      sizeBytes: 100_000,
+    });
+    const nodes = [
+      makeSummaryNode({
+        id: 'sum-truncated',
+        tree_kind: 'topic',
+        tree_scope: 'workspace one',
+        level: 2,
+        file_basename: 'summary-A',
+      }),
+    ];
+
+    render(<MemoryGraph nodes={nodes} edges={[]} mode="tree" />);
+    fireEvent.mouseEnter(screen.getByTestId('memory-graph-node-sum-truncated'));
+    fireEvent.click(screen.getByTestId('memory-graph-preview-sum-truncated'));
+
+    expect(await screen.findByTestId('memory-graph-preview')).toHaveTextContent('# Summary');
+    expect(screen.getByTestId('memory-graph-preview')).toHaveTextContent('…');
+  });
+
   it('keeps the summary preview action reachable after leaving the SVG node', () => {
     const nodes = [
       makeSummaryNode({
@@ -173,6 +251,25 @@ describe('<MemoryGraph />', () => {
     fireEvent.mouseLeave(node, { relatedTarget: screen.getByTestId('memory-graph-tooltip') });
 
     expect(screen.getByTestId('memory-graph-preview-sum-A')).toBeInTheDocument();
+  });
+
+  it('clears the hovered node when the pointer leaves the graph', () => {
+    const nodes = [
+      makeSummaryNode({
+        id: 'sum-A',
+        tree_kind: 'topic',
+        tree_scope: 'workspace one',
+        level: 2,
+        file_basename: 'summary-A',
+      }),
+    ];
+    const { container } = render(<MemoryGraph nodes={nodes} edges={[]} mode="tree" />);
+
+    fireEvent.mouseEnter(screen.getByTestId('memory-graph-node-sum-A'));
+    expect(screen.getByTestId('memory-graph-tooltip')).toBeInTheDocument();
+    fireEvent.mouseLeave(container.querySelector('.memory-graph') as Element);
+
+    expect(screen.queryByTestId('memory-graph-tooltip')).not.toBeInTheDocument();
   });
 
   it('does NOT call workspace open when a non-summary node is clicked', async () => {
