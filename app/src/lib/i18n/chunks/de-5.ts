@@ -503,19 +503,19 @@ const de5: TranslationMap = {
   'settings.mascot.title': 'OpenHuman',
   'settings.developerMenu.mcpServer.title': 'MCP-Server',
   'settings.developerMenu.mcpServer.desc':
-    'Externe MCP-Clients für die Verbindung zu OpenHuman konfigurieren',
+    'Externe MCP-Clients zur Verbindung mit OpenHuman konfigurieren',
   'settings.mcpServer.title': 'MCP-Server',
   'settings.mcpServer.toolsSectionTitle': 'Verfügbare Tools',
   'settings.mcpServer.toolsSectionDesc':
-    'Tools, die über den MCP-stdio-Server bereitgestellt werden, wenn openhuman-core mcp läuft',
+    'Tools, die über den MCP-Stdio-Server bereitgestellt werden, wenn openhuman-core mcp ausgeführt wird',
   'settings.mcpServer.configSectionTitle': 'Client-Konfiguration',
   'settings.mcpServer.configSectionDesc':
-    'Wähle deinen MCP-Client, um den passenden Konfigurations-Snippet zu erzeugen',
+    'Wählen Sie Ihren MCP-Client aus, um den passenden Konfigurations-Schnipsel zu erzeugen',
   'settings.mcpServer.copySnippet': 'In Zwischenablage kopieren',
   'settings.mcpServer.copied': 'Kopiert!',
   'settings.mcpServer.openConfigFile': 'Konfigurationsdatei öffnen',
   'settings.mcpServer.binaryPathNotFound':
-    'OpenHuman-Binary nicht gefunden. Bei Quellbau bitte mit `cargo build --bin openhuman-core` bauen.',
+    'OpenHuman-Binary nicht gefunden. Wenn Sie aus dem Quellcode arbeiten, bauen Sie mit: cargo build --bin openhuman-core',
   'settings.mcpServer.openConfigError': 'Konfigurationsdatei konnte nicht geöffnet werden',
   'settings.mcpServer.clientClaudeDesktop': 'Claude Desktop',
   'settings.mcpServer.clientCursor': 'Cursor',

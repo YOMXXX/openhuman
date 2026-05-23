@@ -23,7 +23,7 @@ pub fn toolkit_description(slug: &str) -> &'static str {
         "larksuite" => {
             "Connect Lark / Feishu workspace chat, docs, wiki, and meetings via Composio"
         }
-        "linear" => "Create and manage issues, projects, and cycles in Linear",
+        "linear" => "Create and manage issues, projects, and cycles in Linear; sync assigned issues into Memory Tree",
         "jira" => "Create and manage issues, projects, and sprints in Jira",
         "trello" => "Create and manage cards, lists, and boards in Trello",
         "asana" => "Create and manage tasks, projects, and sections in Asana",
