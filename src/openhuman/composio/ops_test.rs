@@ -513,6 +513,57 @@ async fn composio_delete_connection_clear_memory_deletes_slack_source() {
 }
 
 #[tokio::test]
+async fn notion_cleanup_targets_include_synced_page_sources() {
+    let tmp = tempfile::tempdir().unwrap();
+    let config = test_config(&tmp);
+    let memory = std::sync::Arc::new(
+        MemoryClient::from_workspace_dir(config.workspace_dir.clone())
+            .expect("memory client should initialise"),
+    );
+    let mut state = SyncState::new("notion", "conn-1");
+    state.mark_synced("page-a@2026-01-01T00:00:00Z");
+    state.mark_synced("page-b");
+    state.save(&memory).await.expect("sync state should save");
+
+    let targets = composio_memory_targets_for_connection(&config, Some("notion"), "conn-1").await;
+
+    assert!(targets.contains(&MemoryCleanupTarget::Exact(
+        SourceKind::Document,
+        "notion:page-a".to_string()
+    )));
+    assert!(targets.contains(&MemoryCleanupTarget::Exact(
+        SourceKind::Document,
+        "notion:page-b".to_string()
+    )));
+    assert!(targets.contains(&MemoryCleanupTarget::Exact(
+        SourceKind::Document,
+        "composio-notion-page-page-a".to_string()
+    )));
+}
+
+#[tokio::test]
+async fn drive_cleanup_targets_are_connection_scoped() {
+    let tmp = tempfile::tempdir().unwrap();
+    let config = test_config(&tmp);
+
+    let targets =
+        composio_memory_targets_for_connection(&config, Some("google_drive"), "conn-1").await;
+
+    assert!(targets.contains(&MemoryCleanupTarget::Exact(
+        SourceKind::Document,
+        "drive:conn-1".to_string()
+    )));
+    assert!(targets.contains(&MemoryCleanupTarget::Prefix(
+        SourceKind::Document,
+        "googledrive:conn-1:".to_string()
+    )));
+    assert!(targets.contains(&MemoryCleanupTarget::Prefix(
+        SourceKind::Document,
+        "google_drive:conn-1/".to_string()
+    )));
+}
+
+#[tokio::test]
 async fn composio_get_user_profile_via_mock_returns_provider_profile() {
     use crate::openhuman::config::TEST_ENV_LOCK;
     let _cache_guard = CACHE_TEST_GUARD.lock().unwrap_or_else(|e| e.into_inner());

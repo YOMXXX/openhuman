@@ -297,6 +297,42 @@ fn delete_chunks_by_source_removes_chunks_side_rows_and_ingest_gate() {
 }
 
 #[test]
+fn delete_chunks_by_source_removes_safe_content_files_but_rejects_escape_paths() {
+    let (_tmp, cfg) = test_config();
+    let safe = sample_chunk("slack:c-1", 0, 1_700_000_000_000);
+    let unsafe_chunk = sample_chunk("slack:c-1", 1, 1_700_000_001_000);
+    upsert_chunks(&cfg, &[safe.clone(), unsafe_chunk.clone()]).unwrap();
+
+    let content_root = cfg.memory_tree_content_root();
+    let safe_rel = "chunks/safe.md";
+    let safe_path = content_root.join(safe_rel);
+    std::fs::create_dir_all(safe_path.parent().unwrap()).unwrap();
+    std::fs::write(&safe_path, "safe").unwrap();
+
+    let outside_path = content_root.parent().unwrap().join("outside.md");
+    std::fs::write(&outside_path, "outside").unwrap();
+
+    with_connection(&cfg, |conn| {
+        conn.execute(
+            "UPDATE mem_tree_chunks SET content_path = ?1 WHERE id = ?2",
+            params![safe_rel, safe.id],
+        )?;
+        conn.execute(
+            "UPDATE mem_tree_chunks SET content_path = ?1 WHERE id = ?2",
+            params!["../outside.md", unsafe_chunk.id],
+        )?;
+        Ok(())
+    })
+    .unwrap();
+
+    let deleted = delete_chunks_by_source(&cfg, SourceKind::Chat, "slack:c-1").unwrap();
+
+    assert_eq!(deleted, 2);
+    assert!(!safe_path.exists());
+    assert!(outside_path.exists());
+}
+
+#[test]
 fn missing_chunk_returns_none() {
     let (_tmp, cfg) = test_config();
     assert!(get_chunk(&cfg, "nonexistent").unwrap().is_none());

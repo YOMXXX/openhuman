@@ -820,11 +820,59 @@ fn delete_chunks_by_source_filter(
 }
 
 fn remove_chunk_content_files(config: &Config, content_paths: &[String]) {
-    for rel in content_paths {
-        let mut path = config.memory_tree_content_root();
-        for component in rel.split('/') {
-            path.push(component);
+    use std::path::{Component, Path};
+
+    let root = config.memory_tree_content_root();
+    let canonical_root = match std::fs::canonicalize(&root) {
+        Ok(path) => path,
+        Err(error) => {
+            if error.kind() != std::io::ErrorKind::NotFound {
+                log::warn!(
+                    "[memory_tree::store] failed to resolve content root {}: {error}",
+                    root.display(),
+                );
+            }
+            return;
         }
+    };
+
+    for rel in content_paths {
+        let rel_path = Path::new(rel);
+        let has_escape_component = rel_path.components().any(|component| {
+            matches!(
+                component,
+                Component::ParentDir | Component::RootDir | Component::Prefix(_)
+            )
+        });
+        if has_escape_component {
+            log::warn!(
+                "[memory_tree::store] refusing to remove chunk file with unsafe content_path path_hash={}",
+                crate::openhuman::memory::tree::util::redact::redact(rel),
+            );
+            continue;
+        }
+
+        let path = root.join(rel_path);
+        let path = match std::fs::canonicalize(&path) {
+            Ok(path) => path,
+            Err(error) => {
+                if error.kind() != std::io::ErrorKind::NotFound {
+                    log::warn!(
+                        "[memory_tree::store] failed to resolve chunk file path_hash={}: {error}",
+                        crate::openhuman::memory::tree::util::redact::redact(rel),
+                    );
+                }
+                continue;
+            }
+        };
+        if !path.starts_with(&canonical_root) {
+            log::warn!(
+                "[memory_tree::store] refusing to remove chunk file outside content root path_hash={}",
+                crate::openhuman::memory::tree::util::redact::redact(rel),
+            );
+            continue;
+        }
+
         if let Err(error) = std::fs::remove_file(&path) {
             if error.kind() != std::io::ErrorKind::NotFound {
                 log::warn!(

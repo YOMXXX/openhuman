@@ -12,6 +12,7 @@ use crate::openhuman::config::Config;
 use crate::openhuman::memory::tree::{
     content_store::raw::slug_account_email, store as memory_tree_store, types::SourceKind,
 };
+use crate::openhuman::memory::MemoryClient;
 use crate::rpc::RpcOutcome;
 
 /// Result alias used by every `composio_*` op in this module.
@@ -29,8 +30,8 @@ use super::client::{
     ComposioClient, ComposioClientKind,
 };
 use super::providers::{
-    agent_ready_toolkits, capability_matrix, get_provider, ProviderContext, ProviderUserProfile,
-    SyncOutcome, SyncReason,
+    agent_ready_toolkits, capability_matrix, get_provider, sync_state::SyncState, ProviderContext,
+    ProviderUserProfile, SyncOutcome, SyncReason,
 };
 use super::types::{
     ComposioActiveTriggersResponse, ComposioAuthorizeResponse, ComposioAvailableTriggersResponse,
@@ -423,8 +424,8 @@ pub async fn composio_delete_connection(
         }
         Err(_) => None,
     };
-    let memory_sources = if clear_memory {
-        composio_memory_sources_for_connection(toolkit.as_deref(), connection_id)
+    let memory_targets = if clear_memory {
+        composio_memory_targets_for_connection(config, toolkit.as_deref(), connection_id).await
     } else {
         Vec::new()
     };
@@ -433,15 +434,19 @@ pub async fn composio_delete_connection(
         format!("[composio] delete_connection failed: {e:#}")
     })?;
     let mut memory_chunks_deleted = 0;
-    for (source_kind, source_id) in &memory_sources {
-        memory_chunks_deleted +=
-            memory_tree_store::delete_chunks_by_source(config, *source_kind, source_id).map_err(
-                |e| {
-                    format!(
-                        "[composio] connection deleted, but failed to clear memory chunks for source '{source_id}': {e:#}"
-                    )
-                },
-            )?;
+    let mut memory_clear_errors = Vec::new();
+    for target in &memory_targets {
+        match target.delete(config) {
+            Ok(deleted) => {
+                memory_chunks_deleted += deleted;
+            }
+            Err(error) => {
+                memory_clear_errors.push(format!(
+                    "[composio] connection deleted, but failed to clear memory chunks for {}: {error:#}",
+                    target.label()
+                ));
+            }
+        }
     }
     resp.memory_chunks_deleted = memory_chunks_deleted;
     if let Some(toolkit) = toolkit.as_deref() {
@@ -504,28 +509,73 @@ pub async fn composio_delete_connection(
             );
         }
     }
+    if !memory_clear_errors.is_empty() {
+        return Err(memory_clear_errors.join("; "));
+    }
     Ok(RpcOutcome::new(
         resp,
         vec![format!("composio: connection {connection_id} deleted")],
     ))
 }
 
-fn composio_memory_sources_for_connection(
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum MemoryCleanupTarget {
+    Exact(SourceKind, String),
+    Prefix(SourceKind, String),
+}
+
+impl MemoryCleanupTarget {
+    fn delete(&self, config: &Config) -> anyhow::Result<usize> {
+        match self {
+            Self::Exact(source_kind, source_id) => {
+                memory_tree_store::delete_chunks_by_source(config, *source_kind, source_id)
+            }
+            Self::Prefix(source_kind, source_id_prefix) => {
+                memory_tree_store::delete_chunks_by_source_prefix(
+                    config,
+                    *source_kind,
+                    source_id_prefix,
+                )
+            }
+        }
+    }
+
+    fn label(&self) -> String {
+        match self {
+            Self::Exact(source_kind, source_id) => {
+                format!("{}:{source_id}", source_kind.as_str())
+            }
+            Self::Prefix(source_kind, source_id_prefix) => {
+                format!("{}:{source_id_prefix}*", source_kind.as_str())
+            }
+        }
+    }
+}
+
+async fn composio_memory_targets_for_connection(
+    config: &Config,
     toolkit: Option<&str>,
     connection_id: &str,
-) -> Vec<(SourceKind, String)> {
+) -> Vec<MemoryCleanupTarget> {
     let Some(toolkit) = toolkit.map(str::trim).filter(|s| !s.is_empty()) else {
         return Vec::new();
     };
 
     match toolkit.to_ascii_lowercase().as_str() {
-        "slack" => vec![(SourceKind::Chat, format!("slack:{connection_id}"))],
+        "slack" => vec![MemoryCleanupTarget::Exact(
+            SourceKind::Chat,
+            format!("slack:{connection_id}"),
+        )],
         "gmail" => gmail_memory_sources_for_connection(connection_id),
+        "notion" => notion_memory_targets_for_connection(config, connection_id).await,
+        "drive" | "googledrive" | "google_drive" => {
+            drive_memory_targets_for_connection(connection_id)
+        }
         _ => Vec::new(),
     }
 }
 
-fn gmail_memory_sources_for_connection(connection_id: &str) -> Vec<(SourceKind, String)> {
+fn gmail_memory_sources_for_connection(connection_id: &str) -> Vec<MemoryCleanupTarget> {
     let normalized_connection_id =
         super::providers::profile::normalize_connection_identifier(connection_id);
     let mut sources = Vec::new();
@@ -541,7 +591,7 @@ fn gmail_memory_sources_for_connection(connection_id: &str) -> Vec<(SourceKind, 
         else {
             continue;
         };
-        let source = (
+        let source = MemoryCleanupTarget::Exact(
             SourceKind::Email,
             format!("gmail:{}", slug_account_email(email)),
         );
@@ -550,6 +600,85 @@ fn gmail_memory_sources_for_connection(connection_id: &str) -> Vec<(SourceKind, 
         }
     }
     sources
+}
+
+async fn notion_memory_targets_for_connection(
+    config: &Config,
+    connection_id: &str,
+) -> Vec<MemoryCleanupTarget> {
+    let mut targets = connection_scoped_document_targets("notion", connection_id);
+
+    match MemoryClient::from_workspace_dir(config.workspace_dir.clone()) {
+        Ok(memory) => {
+            let memory = Arc::new(memory);
+            match SyncState::load(&memory, "notion", connection_id).await {
+                Ok(state) => {
+                    for raw_id in state.synced_ids {
+                        let Some(page_id) = notion_synced_page_id(&raw_id) else {
+                            continue;
+                        };
+                        targets.push(MemoryCleanupTarget::Exact(
+                            SourceKind::Document,
+                            format!("notion:{page_id}"),
+                        ));
+                        targets.push(MemoryCleanupTarget::Exact(
+                            SourceKind::Document,
+                            format!("composio-notion-page-{page_id}"),
+                        ));
+                    }
+                }
+                Err(error) => {
+                    tracing::warn!(
+                        connection_id = %connection_id,
+                        error = %error,
+                        "[composio] failed to load notion sync state for memory cleanup"
+                    );
+                }
+            }
+        }
+        Err(error) => {
+            tracing::warn!(
+                connection_id = %connection_id,
+                error = %error,
+                "[composio] failed to open memory client for notion cleanup target discovery"
+            );
+        }
+    }
+
+    dedupe_memory_targets(targets)
+}
+
+fn drive_memory_targets_for_connection(connection_id: &str) -> Vec<MemoryCleanupTarget> {
+    ["drive", "googledrive", "google_drive"]
+        .into_iter()
+        .flat_map(|prefix| connection_scoped_document_targets(prefix, connection_id))
+        .collect()
+}
+
+fn connection_scoped_document_targets(
+    prefix: &str,
+    connection_id: &str,
+) -> Vec<MemoryCleanupTarget> {
+    vec![
+        MemoryCleanupTarget::Exact(SourceKind::Document, format!("{prefix}:{connection_id}")),
+        MemoryCleanupTarget::Prefix(SourceKind::Document, format!("{prefix}:{connection_id}:")),
+        MemoryCleanupTarget::Prefix(SourceKind::Document, format!("{prefix}:{connection_id}/")),
+    ]
+}
+
+fn notion_synced_page_id(raw_id: &str) -> Option<String> {
+    let page_id = raw_id.split_once('@').map_or(raw_id, |(id, _)| id).trim();
+    (!page_id.is_empty()).then(|| page_id.to_string())
+}
+
+fn dedupe_memory_targets(targets: Vec<MemoryCleanupTarget>) -> Vec<MemoryCleanupTarget> {
+    let mut unique = Vec::new();
+    for target in targets {
+        if !unique.contains(&target) {
+            unique.push(target);
+        }
+    }
+    unique
 }
 
 // ── Tools ───────────────────────────────────────────────────────────

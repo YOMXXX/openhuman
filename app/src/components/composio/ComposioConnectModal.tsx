@@ -518,6 +518,7 @@ export default function ComposioConnectModal({
       const msg = err instanceof Error ? err.message : String(err);
       setPhase('error');
       setError(`${t('composio.connect.disconnectFailed')}: ${msg}`);
+      setClearMemoryOnDisconnect(false);
     }
   }, [activeConnection, clearMemoryOnDisconnect, onChanged, t]);
 
@@ -784,6 +785,7 @@ export default function ComposioConnectModal({
               <button
                 type="button"
                 onClick={() => {
+                  setClearMemoryOnDisconnect(false);
                   setPhase(
                     initiallyConnected ? 'connected' : initiallyExpired ? 'expired' : 'idle'
                   );
