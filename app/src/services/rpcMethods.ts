@@ -1,6 +1,7 @@
 export const CORE_RPC_METHODS = {
   configGet: 'openhuman.config_get',
   configGetAnalyticsSettings: 'openhuman.config_get_analytics_settings',
+  configGetAutonomySettings: 'openhuman.config_get_autonomy_settings',
   configGetComposioTriggerSettings: 'openhuman.config_get_composio_trigger_settings',
   configGetRuntimeFlags: 'openhuman.config_get_runtime_flags',
   configSetBrowserAllowAll: 'openhuman.config_set_browser_allow_all',

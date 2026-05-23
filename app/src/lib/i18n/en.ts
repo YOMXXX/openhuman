@@ -1976,6 +1976,8 @@ const en: TranslationMap = {
   'settings.actionBudget.validation': 'Enter a whole number from 1 to 1000.',
   'settings.actionBudget.saved': 'Saved',
   'settings.actionBudget.saving': 'Saving...',
+  'settings.developerMenu.autonomy.title': 'Agent autonomy',
+  'settings.developerMenu.autonomy.desc': 'Tool action rate limits and safety thresholds',
   'settings.mcpServer.title': 'MCP Server',
   'settings.mcpServer.toolsSectionTitle': 'Available Tools',
   'settings.mcpServer.toolsSectionDesc':
@@ -2010,6 +2012,10 @@ const en: TranslationMap = {
   'settings.mascot.active': 'Active',
   'settings.mascot.characterDesc': 'Choose your OpenHuman character.',
   'settings.mascot.characterHeading': 'Character',
+  'settings.mascot.customGifError':
+    'Enter an HTTPS .gif URL, loopback HTTP .gif URL, file:// .gif URL, or local .gif path.',
+  'settings.mascot.customGifHeading': 'Custom GIF avatar',
+  'settings.mascot.customGifLabel': 'Custom GIF avatar URL',
   'settings.mascot.characterPreview': 'Preview',
   'settings.mascot.characterStates': 'states',
   'settings.mascot.characterVisemes': 'visemes',
