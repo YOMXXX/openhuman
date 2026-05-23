@@ -457,6 +457,9 @@ const de5: TranslationMap = {
   'webhooks.tunnels.toggleFailed': 'Echo konnte nicht umgeschaltet werden',
   'composio.authExpired': 'Authentifizierung abgelaufen',
   'composio.reconnect': 'Wieder verbinden',
+  'composio.previewBadge': 'Preview',
+  'composio.previewTooltip':
+    'Agent integration coming soon — you can connect, but the agent can’t use this toolkit yet.',
   'composio.directModeRequiresKey':
     'Speichern fehlgeschlagen. Der Direktmodus erfordert einen nicht leeren Schlüssel API.',
   'composio.notYetRouted': 'noch nicht geroutet',
@@ -510,12 +513,12 @@ const de5: TranslationMap = {
     'Tools, die über den MCP-Stdio-Server bereitgestellt werden, wenn openhuman-core mcp ausgeführt wird',
   'settings.mcpServer.configSectionTitle': 'Client-Konfiguration',
   'settings.mcpServer.configSectionDesc':
-    'Wählen Sie Ihren MCP-Client aus, um den passenden Konfigurations-Schnipsel zu erzeugen',
-  'settings.mcpServer.copySnippet': 'In Zwischenablage kopieren',
+    'Wähle deinen MCP-Client aus, um den passenden Konfigurations-Schnipsel zu erzeugen',
+  'settings.mcpServer.copySnippet': 'In die Zwischenablage kopieren',
   'settings.mcpServer.copied': 'Kopiert!',
   'settings.mcpServer.openConfigFile': 'Konfigurationsdatei öffnen',
   'settings.mcpServer.binaryPathNotFound':
-    'OpenHuman-Binary nicht gefunden. Wenn Sie aus dem Quellcode arbeiten, bauen Sie mit: cargo build --bin openhuman-core',
+    'OpenHuman-Binärdatei nicht gefunden. Wenn du aus dem Quellcode arbeitest, baue sie mit: cargo build --bin openhuman-core',
   'settings.mcpServer.openConfigError': 'Konfigurationsdatei konnte nicht geöffnet werden',
   'settings.mcpServer.clientClaudeDesktop': 'Claude Desktop',
   'settings.mcpServer.clientCursor': 'Cursor',
