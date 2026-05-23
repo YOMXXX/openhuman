@@ -87,11 +87,6 @@ struct MemorySettingsUpdate {
 }
 
 #[derive(Debug, Deserialize)]
-struct AutonomySettingsUpdate {
-    max_actions_per_hour: Option<u32>,
-}
-
-#[derive(Debug, Deserialize)]
 struct RuntimeSettingsUpdate {
     kind: Option<String>,
     reasoning_enabled: Option<bool>,
@@ -203,7 +198,6 @@ pub fn all_controller_schemas() -> Vec<ControllerSchema> {
         schemas("get_client_config"),
         schemas("update_model_settings"),
         schemas("update_memory_settings"),
-        schemas("update_autonomy_settings"),
         schemas("update_screen_intelligence_settings"),
         schemas("update_runtime_settings"),
         schemas("update_browser_settings"),
@@ -250,10 +244,6 @@ pub fn all_registered_controllers() -> Vec<RegisteredController> {
         RegisteredController {
             schema: schemas("update_memory_settings"),
             handler: handle_update_memory_settings,
-        },
-        RegisteredController {
-            schema: schemas("update_autonomy_settings"),
-            handler: handle_update_autonomy_settings,
         },
         RegisteredController {
             schema: schemas("update_screen_intelligence_settings"),
@@ -485,18 +475,6 @@ pub fn schemas(function: &str) -> ControllerSchema {
                     "Stepped long-term memory window preset: minimal | balanced | extended | maximum.",
                 ),
             ],
-            outputs: vec![json_output("snapshot", "Updated config snapshot.")],
-        },
-        "update_autonomy_settings" => ControllerSchema {
-            namespace: "config",
-            function: "update_autonomy_settings",
-            description: "Update autonomy and local action-budget settings.",
-            inputs: vec![FieldSchema {
-                name: "max_actions_per_hour",
-                ty: TypeSchema::Option(Box::new(TypeSchema::U64)),
-                comment: "Maximum tool actions allowed in the rolling one-hour local safety window.",
-                required: false,
-            }],
             outputs: vec![json_output("snapshot", "Updated config snapshot.")],
         },
         "update_screen_intelligence_settings" => ControllerSchema {
@@ -1076,38 +1054,6 @@ fn handle_update_memory_settings(params: Map<String, Value>) -> ControllerFuture
             memory_window: update.memory_window,
         };
         to_json(config_rpc::load_and_apply_memory_settings(patch).await?)
-    })
-}
-
-fn handle_update_autonomy_settings(params: Map<String, Value>) -> ControllerFuture {
-    Box::pin(async move {
-        log::debug!("[config][rpc] update_autonomy_settings enter");
-        let update = match deserialize_params::<AutonomySettingsUpdate>(params) {
-            Ok(update) => update,
-            Err(err) => {
-                log::warn!("[config][rpc] update_autonomy_settings invalid params: {err}");
-                return Err(err);
-            }
-        };
-        let patch = config_rpc::AutonomySettingsPatch {
-            max_actions_per_hour: update.max_actions_per_hour,
-        };
-        let max_actions_per_hour = patch.max_actions_per_hour;
-        log::debug!(
-            "[config][rpc] update_autonomy_settings apply max_actions_per_hour={max_actions_per_hour:?}"
-        );
-        match config_rpc::load_and_apply_autonomy_settings(patch).await {
-            Ok(outcome) => {
-                log::debug!(
-                    "[config][rpc] update_autonomy_settings ok max_actions_per_hour={max_actions_per_hour:?}"
-                );
-                to_json(outcome)
-            }
-            Err(err) => {
-                log::warn!("[config][rpc] update_autonomy_settings failed: {err}");
-                Err(err)
-            }
-        }
     })
 }
 

@@ -380,11 +380,6 @@ pub struct MeetSettingsPatch {
 }
 
 #[derive(Debug, Clone, Default)]
-pub struct AutonomySettingsPatch {
-    pub max_actions_per_hour: Option<u32>,
-}
-
-#[derive(Debug, Clone, Default)]
 pub struct LocalAiSettingsPatch {
     pub runtime_enabled: Option<bool>,
     /// MVP opt-in marker. Bootstrap hard-overrides status to "disabled"
@@ -640,24 +635,6 @@ pub async fn apply_memory_settings(
 }
 
 /// Updates local autonomy and action budget settings in the configuration.
-pub async fn apply_autonomy_settings(
-    config: &mut Config,
-    update: AutonomySettingsPatch,
-) -> Result<RpcOutcome<serde_json::Value>, String> {
-    if let Some(max_actions_per_hour) = update.max_actions_per_hour {
-        config.autonomy.max_actions_per_hour = max_actions_per_hour;
-    }
-    config.save().await.map_err(|e| e.to_string())?;
-    let snapshot = snapshot_config_json(config)?;
-    Ok(RpcOutcome::new(
-        snapshot,
-        vec![format!(
-            "autonomy settings saved to {}",
-            config.config_path.display()
-        )],
-    ))
-}
-
 /// Updates the screen intelligence settings in the configuration.
 pub async fn apply_screen_intelligence_settings(
     config: &mut Config,
@@ -770,14 +747,6 @@ pub async fn load_and_apply_memory_settings(
 ) -> Result<RpcOutcome<serde_json::Value>, String> {
     let mut config = load_config_with_timeout().await?;
     apply_memory_settings(&mut config, update).await
-}
-
-/// Loads the configuration, applies autonomy settings updates, and saves it.
-pub async fn load_and_apply_autonomy_settings(
-    update: AutonomySettingsPatch,
-) -> Result<RpcOutcome<serde_json::Value>, String> {
-    let mut config = load_config_with_timeout().await?;
-    apply_autonomy_settings(&mut config, update).await
 }
 
 /// Loads the configuration, applies screen intelligence settings updates, and saves it.

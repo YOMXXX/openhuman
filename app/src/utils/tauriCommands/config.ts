@@ -114,10 +114,6 @@ export interface MemorySettingsUpdate {
   memory_window?: MemoryContextWindow | null;
 }
 
-export interface AutonomySettingsUpdate {
-  max_actions_per_hour?: number | null;
-}
-
 export interface RuntimeSettingsUpdate {
   kind?: string | null;
   reasoning_enabled?: boolean | null;
@@ -261,18 +257,6 @@ export async function openhumanUpdateMemorySettings(
   }
   return await callCoreRpc<CommandResponse<ConfigSnapshot>>({
     method: CORE_RPC_METHODS.configUpdateMemorySettings,
-    params: update,
-  });
-}
-
-export async function openhumanUpdateAutonomySettings(
-  update: AutonomySettingsUpdate
-): Promise<CommandResponse<ConfigSnapshot>> {
-  if (!isTauri()) {
-    throw new Error('Not running in Tauri');
-  }
-  return await callCoreRpc<CommandResponse<ConfigSnapshot>>({
-    method: CORE_RPC_METHODS.configUpdateAutonomySettings,
     params: update,
   });
 }
