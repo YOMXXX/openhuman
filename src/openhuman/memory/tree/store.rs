@@ -853,7 +853,7 @@ fn remove_chunk_content_files(config: &Config, content_paths: &[String]) {
         }
 
         let path = root.join(rel_path);
-        let path = match std::fs::canonicalize(&path) {
+        let resolved_path = match std::fs::canonicalize(&path) {
             Ok(path) => path,
             Err(error) => {
                 if error.kind() != std::io::ErrorKind::NotFound {
@@ -865,7 +865,7 @@ fn remove_chunk_content_files(config: &Config, content_paths: &[String]) {
                 continue;
             }
         };
-        if !path.starts_with(&canonical_root) {
+        if !resolved_path.starts_with(&canonical_root) {
             log::warn!(
                 "[memory_tree::store] refusing to remove chunk file outside content root path_hash={}",
                 crate::openhuman::memory::tree::util::redact::redact(rel),

@@ -332,6 +332,37 @@ fn delete_chunks_by_source_removes_safe_content_files_but_rejects_escape_paths()
     assert!(outside_path.exists());
 }
 
+#[cfg(unix)]
+#[test]
+fn delete_chunks_by_source_removes_symlink_entry_not_target_file() {
+    let (_tmp, cfg) = test_config();
+    let linked_chunk = sample_chunk("slack:c-1", 0, 1_700_000_000_000);
+    upsert_chunks(&cfg, &[linked_chunk.clone()]).unwrap();
+
+    let content_root = cfg.memory_tree_content_root();
+    let target_path = content_root.join("chunks/target.md");
+    let link_rel = "chunks/link.md";
+    let link_path = content_root.join(link_rel);
+    std::fs::create_dir_all(target_path.parent().unwrap()).unwrap();
+    std::fs::write(&target_path, "target").unwrap();
+    std::os::unix::fs::symlink("target.md", &link_path).unwrap();
+
+    with_connection(&cfg, |conn| {
+        conn.execute(
+            "UPDATE mem_tree_chunks SET content_path = ?1 WHERE id = ?2",
+            params![link_rel, linked_chunk.id],
+        )?;
+        Ok(())
+    })
+    .unwrap();
+
+    let deleted = delete_chunks_by_source(&cfg, SourceKind::Chat, "slack:c-1").unwrap();
+
+    assert_eq!(deleted, 1);
+    assert!(target_path.exists());
+    assert!(!link_path.exists());
+}
+
 #[test]
 fn missing_chunk_returns_none() {
     let (_tmp, cfg) = test_config();

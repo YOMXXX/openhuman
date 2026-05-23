@@ -425,7 +425,11 @@ pub async fn composio_delete_connection(
         Err(_) => None,
     };
     let memory_targets = if clear_memory {
-        composio_memory_targets_for_connection(config, toolkit.as_deref(), connection_id).await
+        composio_memory_targets_for_connection(config, toolkit.as_deref(), connection_id)
+            .await
+            .map_err(|error| {
+                format!("[composio] delete_connection cannot enumerate memory targets: {error:#}")
+            })?
     } else {
         Vec::new()
     };
@@ -556,23 +560,24 @@ async fn composio_memory_targets_for_connection(
     config: &Config,
     toolkit: Option<&str>,
     connection_id: &str,
-) -> Vec<MemoryCleanupTarget> {
+) -> anyhow::Result<Vec<MemoryCleanupTarget>> {
     let Some(toolkit) = toolkit.map(str::trim).filter(|s| !s.is_empty()) else {
-        return Vec::new();
+        return Ok(Vec::new());
     };
 
-    match toolkit.to_ascii_lowercase().as_str() {
+    let targets = match toolkit.to_ascii_lowercase().as_str() {
         "slack" => vec![MemoryCleanupTarget::Exact(
             SourceKind::Chat,
             format!("slack:{connection_id}"),
         )],
         "gmail" => gmail_memory_sources_for_connection(connection_id),
-        "notion" => notion_memory_targets_for_connection(config, connection_id).await,
+        "notion" => notion_memory_targets_for_connection(config, connection_id).await?,
         "drive" | "googledrive" | "google_drive" => {
             drive_memory_targets_for_connection(connection_id)
         }
         _ => Vec::new(),
-    }
+    };
+    Ok(targets)
 }
 
 fn gmail_memory_sources_for_connection(connection_id: &str) -> Vec<MemoryCleanupTarget> {
@@ -605,47 +610,36 @@ fn gmail_memory_sources_for_connection(connection_id: &str) -> Vec<MemoryCleanup
 async fn notion_memory_targets_for_connection(
     config: &Config,
     connection_id: &str,
-) -> Vec<MemoryCleanupTarget> {
+) -> anyhow::Result<Vec<MemoryCleanupTarget>> {
     let mut targets = connection_scoped_document_targets("notion", connection_id);
 
-    match MemoryClient::from_workspace_dir(config.workspace_dir.clone()) {
-        Ok(memory) => {
-            let memory = Arc::new(memory);
-            match SyncState::load(&memory, "notion", connection_id).await {
-                Ok(state) => {
-                    for raw_id in state.synced_ids {
-                        let Some(page_id) = notion_synced_page_id(&raw_id) else {
-                            continue;
-                        };
-                        targets.push(MemoryCleanupTarget::Exact(
-                            SourceKind::Document,
-                            format!("notion:{page_id}"),
-                        ));
-                        targets.push(MemoryCleanupTarget::Exact(
-                            SourceKind::Document,
-                            format!("composio-notion-page-{page_id}"),
-                        ));
-                    }
-                }
-                Err(error) => {
-                    tracing::warn!(
-                        connection_id = %connection_id,
-                        error = %error,
-                        "[composio] failed to load notion sync state for memory cleanup"
-                    );
-                }
-            }
-        }
-        Err(error) => {
-            tracing::warn!(
-                connection_id = %connection_id,
-                error = %error,
-                "[composio] failed to open memory client for notion cleanup target discovery"
-            );
-        }
+    let memory = Arc::new(
+        MemoryClient::from_workspace_dir(config.workspace_dir.clone()).map_err(|error| {
+            anyhow::anyhow!(
+                "failed to open memory client for notion cleanup target discovery: {error}"
+            )
+        })?,
+    );
+    let state = SyncState::load(&memory, "notion", connection_id)
+        .await
+        .map_err(|error| {
+            anyhow::anyhow!("failed to load notion sync state for memory cleanup: {error}")
+        })?;
+    for raw_id in state.synced_ids {
+        let Some(page_id) = notion_synced_page_id(&raw_id) else {
+            continue;
+        };
+        targets.push(MemoryCleanupTarget::Exact(
+            SourceKind::Document,
+            format!("notion:{page_id}"),
+        ));
+        targets.push(MemoryCleanupTarget::Exact(
+            SourceKind::Document,
+            format!("composio-notion-page-{page_id}"),
+        ));
     }
 
-    dedupe_memory_targets(targets)
+    Ok(dedupe_memory_targets(targets))
 }
 
 fn drive_memory_targets_for_connection(connection_id: &str) -> Vec<MemoryCleanupTarget> {

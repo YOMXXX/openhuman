@@ -525,7 +525,9 @@ async fn notion_cleanup_targets_include_synced_page_sources() {
     state.mark_synced("page-b");
     state.save(&memory).await.expect("sync state should save");
 
-    let targets = composio_memory_targets_for_connection(&config, Some("notion"), "conn-1").await;
+    let targets = composio_memory_targets_for_connection(&config, Some("notion"), "conn-1")
+        .await
+        .expect("notion cleanup targets should resolve");
 
     assert!(targets.contains(&MemoryCleanupTarget::Exact(
         SourceKind::Document,
@@ -542,12 +544,37 @@ async fn notion_cleanup_targets_include_synced_page_sources() {
 }
 
 #[tokio::test]
+async fn notion_cleanup_targets_surface_corrupt_sync_state() {
+    let tmp = tempfile::tempdir().unwrap();
+    let config = test_config(&tmp);
+    let memory = std::sync::Arc::new(
+        MemoryClient::from_workspace_dir(config.workspace_dir.clone())
+            .expect("memory client should initialise"),
+    );
+    memory
+        .kv_set(
+            Some(super::super::providers::sync_state::KV_NAMESPACE),
+            "notion:conn-1",
+            &serde_json::json!({ "toolkit": 42 }),
+        )
+        .await
+        .expect("corrupt sync state should be written");
+
+    let err = composio_memory_targets_for_connection(&config, Some("notion"), "conn-1")
+        .await
+        .expect_err("corrupt sync state should surface");
+
+    assert!(err.to_string().contains("failed to load notion sync state"));
+}
+
+#[tokio::test]
 async fn drive_cleanup_targets_are_connection_scoped() {
     let tmp = tempfile::tempdir().unwrap();
     let config = test_config(&tmp);
 
-    let targets =
-        composio_memory_targets_for_connection(&config, Some("google_drive"), "conn-1").await;
+    let targets = composio_memory_targets_for_connection(&config, Some("google_drive"), "conn-1")
+        .await
+        .expect("drive cleanup targets should resolve");
 
     assert!(targets.contains(&MemoryCleanupTarget::Exact(
         SourceKind::Document,
