@@ -57,6 +57,7 @@ on:
 
 permissions:
   contents: read
+  packages: read
 
 jobs:
   # Smoke/mega-flow gate for PR/push (full=false). The full-suite path lives in
