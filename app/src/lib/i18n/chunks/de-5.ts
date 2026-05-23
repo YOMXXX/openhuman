@@ -208,6 +208,9 @@ const de5: TranslationMap = {
   'settings.developerMenu.composioRouting.title': 'Composio Routing (Direktmodus)',
   'settings.developerMenu.composioRouting.desc':
     'Bring deinen eigenen Composio API-Schlüssel mit und leite Anrufe direkt an backend.composio.dev weiter',
+  'settings.developerMenu.mcpServer.title': 'MCP Server',
+  'settings.developerMenu.mcpServer.desc':
+    'Konfiguriere externe MCP-Clients für die Verbindung mit OpenHuman',
   'settings.developerMenu.integrationTriggers.title': 'Integrationsauslöser',
   'settings.developerMenu.integrationTriggers.desc':
     'Konfiguriere KI-Triage-Einstellungen für Composio-Integrationsauslöser',
