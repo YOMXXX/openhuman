@@ -9,6 +9,9 @@
 //! agent harness) when they need composio data at runtime.
 
 use crate::openhuman::config::Config;
+use crate::openhuman::memory::tree::{
+    content_store::raw::slug_account_email, store as memory_tree_store, types::SourceKind,
+};
 use crate::rpc::RpcOutcome;
 
 /// Result alias used by every `composio_*` op in this module.
@@ -22,8 +25,8 @@ type OpResult<T> = std::result::Result<T, String>;
 use std::sync::Arc;
 
 use super::client::{
-    build_composio_client, create_composio_client, direct_authorize, direct_list_connections,
-    direct_list_tools, ComposioClient, ComposioClientKind,
+    build_composio_client, create_composio_client, direct_list_connections, direct_list_tools,
+    ComposioClient, ComposioClientKind,
 };
 use super::providers::{
     agent_ready_toolkits, capability_matrix, get_provider, ProviderContext, ProviderUserProfile,
@@ -407,16 +410,40 @@ pub async fn composio_authorize(
 pub async fn composio_delete_connection(
     config: &Config,
     connection_id: &str,
+    clear_memory: bool,
 ) -> OpResult<RpcOutcome<ComposioDeleteResponse>> {
     tracing::debug!(connection_id = %connection_id, "[composio] rpc delete_connection");
     let client = resolve_client(config)?;
-    let toolkit = resolve_toolkit_for_connection(&client, connection_id)
-        .await
-        .ok();
-    let resp = client.delete_connection(connection_id).await.map_err(|e| {
+    let toolkit = match resolve_toolkit_for_connection(&client, connection_id).await {
+        Ok(toolkit) => Some(toolkit),
+        Err(error) if clear_memory => {
+            return Err(format!(
+                "[composio] delete_connection cannot clear memory without resolving toolkit: {error}"
+            ));
+        }
+        Err(_) => None,
+    };
+    let memory_sources = if clear_memory {
+        composio_memory_sources_for_connection(toolkit.as_deref(), connection_id)
+    } else {
+        Vec::new()
+    };
+    let mut resp = client.delete_connection(connection_id).await.map_err(|e| {
         report_composio_op_error("delete_connection", &e);
         format!("[composio] delete_connection failed: {e:#}")
     })?;
+    let mut memory_chunks_deleted = 0;
+    for (source_kind, source_id) in &memory_sources {
+        memory_chunks_deleted +=
+            memory_tree_store::delete_chunks_by_source(config, *source_kind, source_id).map_err(
+                |e| {
+                    format!(
+                        "[composio] connection deleted, but failed to clear memory chunks for source '{source_id}': {e:#}"
+                    )
+                },
+            )?;
+    }
+    resp.memory_chunks_deleted = memory_chunks_deleted;
     if let Some(toolkit) = toolkit.as_deref() {
         let deleted =
             super::providers::profile::delete_connected_identity_facets(toolkit, connection_id);
@@ -481,6 +508,48 @@ pub async fn composio_delete_connection(
         resp,
         vec![format!("composio: connection {connection_id} deleted")],
     ))
+}
+
+fn composio_memory_sources_for_connection(
+    toolkit: Option<&str>,
+    connection_id: &str,
+) -> Vec<(SourceKind, String)> {
+    let Some(toolkit) = toolkit.map(str::trim).filter(|s| !s.is_empty()) else {
+        return Vec::new();
+    };
+
+    match toolkit.to_ascii_lowercase().as_str() {
+        "slack" => vec![(SourceKind::Chat, format!("slack:{connection_id}"))],
+        "gmail" => gmail_memory_sources_for_connection(connection_id),
+        _ => Vec::new(),
+    }
+}
+
+fn gmail_memory_sources_for_connection(connection_id: &str) -> Vec<(SourceKind, String)> {
+    let normalized_connection_id =
+        super::providers::profile::normalize_connection_identifier(connection_id);
+    let mut sources = Vec::new();
+    for identity in super::providers::profile::load_connected_identities() {
+        if identity.source != "gmail" || identity.identifier != normalized_connection_id {
+            continue;
+        }
+        let Some(email) = identity
+            .email
+            .as_deref()
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+        else {
+            continue;
+        };
+        let source = (
+            SourceKind::Email,
+            format!("gmail:{}", slug_account_email(email)),
+        );
+        if !sources.iter().any(|existing| existing == &source) {
+            sources.push(source);
+        }
+    }
+    sources
 }
 
 // ── Tools ───────────────────────────────────────────────────────────

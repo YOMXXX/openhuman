@@ -223,6 +223,25 @@ describe('<ComposioConnectModal>', () => {
     expect(screen.queryByText('(oxox)')).not.toBeInTheDocument();
   });
 
+  it('passes clearMemory only when the disconnect memory checkbox is selected', async () => {
+    const connection: ComposioConnection = { id: 'ca_xyz', toolkit: 'gmail', status: 'ACTIVE' };
+    vi.mocked(composioApi.deleteConnection).mockResolvedValue({
+      deleted: true,
+      memory_chunks_deleted: 1,
+    });
+
+    render(
+      <ComposioConnectModal toolkit={mockToolkit} connection={connection} onClose={() => {}} />
+    );
+
+    fireEvent.click(screen.getByLabelText(/also delete memory/i));
+    fireEvent.click(screen.getByRole('button', { name: /^Disconnect$/i }));
+
+    await waitFor(() => {
+      expect(composioApi.deleteConnection).toHaveBeenCalledWith('ca_xyz', { clearMemory: true });
+    });
+  });
+
   it('shows an expired-auth recovery state with a reconnect CTA', () => {
     const connection: ComposioConnection = {
       id: 'ca_expired',

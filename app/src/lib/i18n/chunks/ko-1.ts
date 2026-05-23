@@ -293,6 +293,9 @@ const ko1: TranslationMap = {
   'accounts.respondQueue': '응답 대기열',
   'accounts.disconnect': '연결 해제',
   'accounts.disconnectConfirm': '이 계정의 연결을 해제하시겠습니까?',
+  'accounts.disconnectClearMemory': 'Also delete memory from this source',
+  'accounts.disconnectClearMemoryHint':
+    'Permanently removes local memory chunks linked to this connection.',
   'accounts.searchAccounts': '계정 검색...',
   'channels.title': '채널',
   'channels.configure': '채널 구성',

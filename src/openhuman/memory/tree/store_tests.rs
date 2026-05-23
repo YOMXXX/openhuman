@@ -219,6 +219,84 @@ fn list_limit_is_clamped_to_sane_range() {
 }
 
 #[test]
+fn delete_chunks_by_source_removes_chunks_side_rows_and_ingest_gate() {
+    let (_tmp, cfg) = test_config();
+    let target_a = sample_chunk("slack:c-1", 0, 1_700_000_000_000);
+    let target_b = sample_chunk("slack:c-1", 1, 1_700_000_001_000);
+    let other = sample_chunk("slack:c-2", 0, 1_700_000_002_000);
+    upsert_chunks(&cfg, &[target_a.clone(), target_b.clone(), other.clone()]).unwrap();
+
+    with_connection(&cfg, |conn| {
+        let tx = conn.unchecked_transaction()?;
+        for chunk in [&target_a, &target_b, &other] {
+            tx.execute(
+                "INSERT INTO mem_tree_score (
+                    chunk_id, total, token_count_signal, unique_words_signal,
+                    metadata_weight, source_weight, interaction_weight,
+                    entity_density, dropped, reason, computed_at_ms
+                ) VALUES (?1, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 0, NULL, 1700000000000)",
+                params![chunk.id],
+            )?;
+            tx.execute(
+                "INSERT INTO mem_tree_entity_index (
+                    entity_id, node_id, node_kind, entity_kind, surface, score, timestamp_ms
+                ) VALUES (?1, ?2, 'chunk', 'person', 'chat', 0.9, 1700000000000)",
+                params![format!("entity:{}", chunk.id), chunk.id],
+            )?;
+            tx.execute(
+                "INSERT INTO mem_tree_chunk_embeddings (
+                    chunk_id, model_signature, vector, dim, created_at
+                ) VALUES (?1, 'test/model@3', ?2, 3, 1700000000.0)",
+                params![chunk.id, vec![1_u8, 2, 3]],
+            )?;
+            tx.execute(
+                "INSERT INTO mem_tree_chunk_reembed_skipped (
+                    chunk_id, model_signature, reason, skipped_at_ms
+                ) VALUES (?1, 'test/model@3', 'terminal', 1700000000000)",
+                params![chunk.id],
+            )?;
+        }
+        assert!(claim_source_ingest_tx(
+            &tx,
+            SourceKind::Chat,
+            "slack:c-1",
+            1_700_000_000_000
+        )?);
+        assert!(claim_source_ingest_tx(
+            &tx,
+            SourceKind::Chat,
+            "slack:c-2",
+            1_700_000_000_000
+        )?);
+        tx.commit()?;
+        Ok(())
+    })
+    .unwrap();
+
+    let deleted = delete_chunks_by_source(&cfg, SourceKind::Chat, "slack:c-1").unwrap();
+
+    assert_eq!(deleted, 2);
+    assert_eq!(count_chunks(&cfg).unwrap(), 1);
+    assert!(get_chunk(&cfg, &target_a.id).unwrap().is_none());
+    assert!(get_chunk(&cfg, &target_b.id).unwrap().is_none());
+    assert!(get_chunk(&cfg, &other.id).unwrap().is_some());
+    assert!(!is_source_ingested(&cfg, SourceKind::Chat, "slack:c-1").unwrap());
+    assert!(is_source_ingested(&cfg, SourceKind::Chat, "slack:c-2").unwrap());
+
+    with_connection(&cfg, |conn| {
+        let count_by_table = |table: &str| -> rusqlite::Result<i64> {
+            conn.query_row(&format!("SELECT COUNT(*) FROM {table}"), [], |r| r.get(0))
+        };
+        assert_eq!(count_by_table("mem_tree_score")?, 1);
+        assert_eq!(count_by_table("mem_tree_entity_index")?, 1);
+        assert_eq!(count_by_table("mem_tree_chunk_embeddings")?, 1);
+        assert_eq!(count_by_table("mem_tree_chunk_reembed_skipped")?, 1);
+        Ok(())
+    })
+    .unwrap();
+}
+
+#[test]
 fn missing_chunk_returns_none() {
     let (_tmp, cfg) = test_config();
     assert!(get_chunk(&cfg, "nonexistent").unwrap().is_none());
