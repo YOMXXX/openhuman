@@ -514,6 +514,13 @@ const de5: TranslationMap = {
   'settings.mascot.colorYellow': 'Gelb',
   'settings.mascot.libraryUnavailable': 'OpenHuman Bibliothek nicht verfügbar',
   'settings.mascot.title': 'OpenHuman',
+  'settings.developerMenu.composio.title': 'Composio',
+  'settings.developerMenu.composio.desc':
+    'Routing-Modus, Integrationsausloeser und Archiv des Ausloeseverlaufs.',
+  'settings.appearance.tabBarHeading': 'Untere Tab-Leiste',
+  'settings.appearance.tabBarAlwaysShowLabels': 'Beschriftungen immer anzeigen',
+  'settings.appearance.tabBarAlwaysShowLabelsDesc':
+    'Wenn deaktiviert, erscheinen Beschriftungen nur beim Hover oder fuer den aktiven Tab.',
   'settings.mcpServer.title': 'MCP Server',
   'settings.mcpServer.toolsSectionTitle': 'Verfuegbare Werkzeuge',
   'settings.mcpServer.toolsSectionDesc':
