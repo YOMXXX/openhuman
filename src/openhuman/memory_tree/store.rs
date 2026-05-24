@@ -37,6 +37,7 @@ use std::time::{Duration, Instant};
 use crate::openhuman::config::Config;
 use crate::openhuman::memory_tree::content_store::StagedChunk;
 use crate::openhuman::memory_tree::types::{Chunk, Metadata, SourceKind, SourceRef};
+use crate::openhuman::memory_tree::util::redact;
 
 const DB_DIR: &str = "memory_tree";
 const DB_FILE: &str = "chunks.db";
@@ -46,7 +47,7 @@ const MAX_LIST_LIMIT: usize = 10_000;
 // contention (4 job workers + scheduler + ingest producers all writing the
 // same `memory_tree/chunks.db`) is absorbed inside rusqlite instead of
 // surfacing as `SQLITE_BUSY` to callers. Workers still treat busy as a
-// soft signal (see `memory::tree::jobs::worker`) so even if this is
+// soft signal (see `memory_tree::jobs::worker`) so even if this is
 // exceeded, the only effect is a one-poll backoff — but 15s is
 // comfortably above realistic peer-write durations and shrinks the rate
 // at which we have to fall back to that path. The previous 5s was tight
@@ -847,7 +848,7 @@ fn remove_chunk_content_files(config: &Config, content_paths: &[String]) {
         if has_escape_component {
             log::warn!(
                 "[memory_tree::store] refusing to remove chunk file with unsafe content_path path_hash={}",
-                crate::openhuman::memory::tree::util::redact::redact(rel),
+                redact::redact(rel),
             );
             continue;
         }
@@ -859,7 +860,7 @@ fn remove_chunk_content_files(config: &Config, content_paths: &[String]) {
                 if error.kind() != std::io::ErrorKind::NotFound {
                     log::warn!(
                         "[memory_tree::store] failed to resolve chunk file path_hash={}: {error}",
-                        crate::openhuman::memory::tree::util::redact::redact(rel),
+                        redact::redact(rel),
                     );
                 }
                 continue;
@@ -868,7 +869,7 @@ fn remove_chunk_content_files(config: &Config, content_paths: &[String]) {
         if !resolved_path.starts_with(&canonical_root) {
             log::warn!(
                 "[memory_tree::store] refusing to remove chunk file outside content root path_hash={}",
-                crate::openhuman::memory::tree::util::redact::redact(rel),
+                redact::redact(rel),
             );
             continue;
         }
@@ -877,7 +878,7 @@ fn remove_chunk_content_files(config: &Config, content_paths: &[String]) {
             if error.kind() != std::io::ErrorKind::NotFound {
                 log::warn!(
                     "[memory_tree::store] failed to remove chunk file path_hash={}: {error}",
-                    crate::openhuman::memory::tree::util::redact::redact(rel),
+                    redact::redact(rel),
                 );
             }
         }

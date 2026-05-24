@@ -1,5 +1,5 @@
 use super::*;
-use crate::openhuman::memory::tree::{
+use crate::openhuman::memory_tree::{
     store as memory_tree_store,
     types::{chunk_id, Chunk, Metadata, SourceKind, SourceRef},
 };

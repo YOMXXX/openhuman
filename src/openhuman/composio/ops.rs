@@ -9,10 +9,10 @@
 //! agent harness) when they need composio data at runtime.
 
 use crate::openhuman::config::Config;
-use crate::openhuman::memory::tree::{
+use crate::openhuman::memory::MemoryClient;
+use crate::openhuman::memory_tree::{
     content_store::raw::slug_account_email, store as memory_tree_store, types::SourceKind,
 };
-use crate::openhuman::memory::MemoryClient;
 use crate::rpc::RpcOutcome;
 
 /// Result alias used by every `composio_*` op in this module.
