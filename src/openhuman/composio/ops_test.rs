@@ -231,9 +231,9 @@ fn invalidate_connected_integrations_cache_is_safe_without_prior_insert() {
 
 // ── Mock-backend integration tests for ops ─────────────────────
 
-use crate::openhuman::memory_tree::{
-    store as memory_tree_store,
-    types::{chunk_id, Chunk, Metadata, SourceKind, SourceRef},
+use crate::openhuman::memory_store::chunks::store as memory_tree_store;
+use crate::openhuman::memory_store::chunks::types::{
+    chunk_id, Chunk, Metadata, SourceKind, SourceRef,
 };
 use axum::{
     extract::{Path, Query},

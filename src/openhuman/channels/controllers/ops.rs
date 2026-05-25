@@ -8,7 +8,8 @@ use crate::api::jwt::get_session_token;
 use crate::api::rest::BackendOAuthClient;
 use crate::openhuman::config::{Config, DiscordConfig, IMessageConfig, TelegramConfig};
 use crate::openhuman::credentials;
-use crate::openhuman::memory_tree::{store as memory_tree_store, types::SourceKind};
+use crate::openhuman::memory_store::chunks::store as memory_tree_store;
+use crate::openhuman::memory_store::chunks::types::SourceKind;
 use crate::rpc::RpcOutcome;
 
 use super::definitions::{

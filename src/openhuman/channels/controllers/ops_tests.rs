@@ -1,7 +1,7 @@
 use super::*;
-use crate::openhuman::memory_tree::{
-    store as memory_tree_store,
-    types::{chunk_id, Chunk, Metadata, SourceKind, SourceRef},
+use crate::openhuman::memory_store::chunks::store as memory_tree_store;
+use crate::openhuman::memory_store::chunks::types::{
+    chunk_id, Chunk, Metadata, SourceKind, SourceRef,
 };
 use chrono::{TimeZone, Utc};
 use tempfile::tempdir;

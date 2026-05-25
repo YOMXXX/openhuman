@@ -10,9 +10,9 @@
 
 use crate::openhuman::config::Config;
 use crate::openhuman::memory::MemoryClient;
-use crate::openhuman::memory_tree::{
-    content_store::raw::slug_account_email, store as memory_tree_store, types::SourceKind,
-};
+use crate::openhuman::memory_store::chunks::store as memory_tree_store;
+use crate::openhuman::memory_store::chunks::types::SourceKind;
+use crate::openhuman::memory_store::content::raw::slug_account_email;
 use crate::rpc::RpcOutcome;
 
 /// Result alias used by every `composio_*` op in this module.
