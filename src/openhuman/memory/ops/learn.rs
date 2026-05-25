@@ -184,7 +184,9 @@ mod tests {
 
     impl WorkspaceEnvGuard {
         fn set(path: &std::path::Path) -> Self {
-            let lock = crate::openhuman::config::TEST_ENV_LOCK.lock().unwrap();
+            let lock = crate::openhuman::config::TEST_ENV_LOCK
+                .lock()
+                .unwrap_or_else(|e| e.into_inner());
             let previous = std::env::var_os("OPENHUMAN_WORKSPACE");
             std::env::set_var("OPENHUMAN_WORKSPACE", path);
             Self {
@@ -231,13 +233,14 @@ mod tests {
     async fn write_config_with_runtime_enabled(
         workspace_root: &std::path::Path,
         runtime_enabled: bool,
-    ) {
-        let _guard = WorkspaceEnvGuard::set(workspace_root);
+    ) -> WorkspaceEnvGuard {
+        let guard = WorkspaceEnvGuard::set(workspace_root);
         let mut config = crate::openhuman::config::Config::load_or_init()
             .await
             .expect("load config");
         config.local_ai.runtime_enabled = runtime_enabled;
         config.save().await.expect("save config");
+        guard
     }
 
     #[tokio::test]
@@ -278,8 +281,7 @@ mod tests {
             &uuid::Uuid::new_v4().as_simple().to_string()[..12]
         );
         let tmp = TempDir::new().expect("tempdir");
-        write_config_with_runtime_enabled(tmp.path(), true).await;
-        let _workspace = WorkspaceEnvGuard::set(tmp.path());
+        let _workspace = write_config_with_runtime_enabled(tmp.path(), true).await;
 
         let outcome = memory_learn_all(LearnAllParams {
             namespaces: Some(vec![
@@ -304,8 +306,7 @@ mod tests {
     async fn memory_learn_all_requires_local_ai_once_existing_namespace_is_selected() {
         let namespace = seed_namespace("memory-learn-runtime").await;
         let tmp = TempDir::new().expect("tempdir");
-        write_config_with_runtime_enabled(tmp.path(), false).await;
-        let _workspace = WorkspaceEnvGuard::set(tmp.path());
+        let _workspace = write_config_with_runtime_enabled(tmp.path(), false).await;
 
         let err = memory_learn_all(LearnAllParams {
             namespaces: Some(vec![namespace]),
@@ -321,8 +322,7 @@ mod tests {
         let namespace_a = seed_namespace("memory-learn-all-a").await;
         let namespace_b = seed_namespace("memory-learn-all-b").await;
         let tmp = TempDir::new().expect("tempdir");
-        write_config_with_runtime_enabled(tmp.path(), true).await;
-        let _workspace = WorkspaceEnvGuard::set(tmp.path());
+        let _workspace = write_config_with_runtime_enabled(tmp.path(), true).await;
 
         let outcome = memory_learn_all(LearnAllParams { namespaces: None })
             .await
