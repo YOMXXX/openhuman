@@ -256,7 +256,10 @@ mod tests {
     #[tokio::test]
     async fn memory_learn_all_is_noop_when_requested_namespaces_do_not_exist() {
         ensure_memory_client();
-        let missing = format!("missing-{}", uuid::Uuid::new_v4());
+        let missing = format!(
+            "missing{}",
+            &uuid::Uuid::new_v4().as_simple().to_string()[..12]
+        );
         let outcome = memory_learn_all(LearnAllParams {
             namespaces: Some(vec![missing]),
         })
@@ -270,7 +273,10 @@ mod tests {
     async fn memory_learn_all_filters_missing_namespaces_and_dedupes_requested_order() {
         let namespace_a = seed_namespace("memory-learn-a").await;
         let namespace_b = seed_namespace("memory-learn-b").await;
-        let missing = format!("missing-{}", uuid::Uuid::new_v4());
+        let missing = format!(
+            "missing{}",
+            &uuid::Uuid::new_v4().as_simple().to_string()[..12]
+        );
         let tmp = TempDir::new().expect("tempdir");
         write_config_with_runtime_enabled(tmp.path(), true).await;
         let _workspace = WorkspaceEnvGuard::set(tmp.path());
