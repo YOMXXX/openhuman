@@ -804,7 +804,7 @@ async fn persist_vision_summary_uses_pii_safe_document_key() {
     };
     let raw_key = format!("screen_intelligence_{}", summary.id);
     assert!(
-        crate::openhuman::memory::safety::pii::has_likely_pii(&raw_key),
+        crate::openhuman::memory_store::safety::pii::has_likely_pii(&raw_key),
         "test fixture must resemble formatted PII before safe-key rewriting"
     );
 
@@ -813,7 +813,7 @@ async fn persist_vision_summary_uses_pii_safe_document_key() {
         .expect("internal screen-intelligence keys must not trip PII guards");
     assert_eq!(persisted.namespace, "background");
     assert!(
-        !crate::openhuman::memory::safety::pii::has_likely_pii(&persisted.key),
+        !crate::openhuman::memory_store::safety::pii::has_likely_pii(&persisted.key),
         "rewritten memory key must stay below the PII boundary guard"
     );
     assert_ne!(

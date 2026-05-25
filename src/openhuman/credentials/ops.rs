@@ -289,7 +289,7 @@ pub async fn store_session(
             logs.push(format!("memory client bind warning: {e}"));
         }
     }
-    crate::openhuman::memory::conversations::register_conversation_persistence_subscriber(
+    crate::openhuman::memory_conversations::register_conversation_persistence_subscriber(
         effective_config.workspace_dir.clone(),
     );
     logs.push("conversation persistence bound to active workspace".to_string());
