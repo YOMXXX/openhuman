@@ -206,12 +206,13 @@ mod tests {
 
     async fn seed_namespace(prefix: &str) -> String {
         ensure_memory_client();
-        let namespace = format!("{prefix}-{}", uuid::Uuid::new_v4());
+        let short_id = &uuid::Uuid::new_v4().as_simple().to_string()[..12];
+        let namespace = format!("{prefix}ns{short_id}");
         let client = crate::openhuman::memory::global::client().expect("memory client");
         client
             .put_doc_light(NamespaceDocumentInput {
                 namespace: namespace.clone(),
-                key: format!("key-{}", uuid::Uuid::new_v4()),
+                key: format!("testkey{short_id}"),
                 title: "Test".into(),
                 content: "Seed content".into(),
                 source_type: "doc".into(),
