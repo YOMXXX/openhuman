@@ -51,7 +51,8 @@ fn path_compatibility_rejects_cross_platform_absolute_paths() {
         r"\\server\share\OHvault",
         "windows"
     ));
-    assert!(store::path_looks_compatible_with_host_os(
+    // Forward-slash `//…` is POSIX-legal, not Windows UNC.
+    assert!(!store::path_looks_compatible_with_host_os(
         "//server/share/OHvault",
         "windows"
     ));
@@ -76,9 +77,14 @@ fn path_compatibility_rejects_cross_platform_absolute_paths() {
         r"\\server\share\OHvault",
         "macos"
     ));
-    assert!(!store::path_looks_compatible_with_host_os(
+    // Forward-slash `//…` is POSIX-legal — compatible with Unix hosts.
+    assert!(store::path_looks_compatible_with_host_os(
         "//server/share/OHvault",
         "macos"
+    ));
+    assert!(store::path_looks_compatible_with_host_os(
+        "//server/share/OHvault",
+        "linux"
     ));
 }
 

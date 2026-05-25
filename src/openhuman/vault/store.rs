@@ -325,12 +325,11 @@ fn looks_like_windows_drive_path(path: &str) -> bool {
         && matches!(bytes[2], b'\\' | b'/')
 }
 
+/// Only backslash-style UNC (`\\server\share`). Forward-slash `//…` is
+/// POSIX-legal and must not be classified as Windows.
 fn looks_like_windows_unc_path(path: &str) -> bool {
     let bytes = path.as_bytes();
-    bytes.len() >= 3
-        && matches!(bytes[0], b'\\' | b'/')
-        && bytes[1] == bytes[0]
-        && !matches!(bytes[2], b'\\' | b'/')
+    bytes.len() >= 3 && bytes[0] == b'\\' && bytes[1] == b'\\' && !matches!(bytes[2], b'\\' | b'/')
 }
 
 fn looks_like_unix_absolute_path(path: &str) -> bool {
