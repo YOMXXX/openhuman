@@ -432,6 +432,9 @@ const en: TranslationMap = {
   'accounts.respondQueue': 'Respond Queue',
   'accounts.disconnect': 'Disconnect',
   'accounts.disconnectConfirm': 'Are you sure you want to disconnect this account?',
+  'accounts.disconnectClearMemory': 'Also delete memory from this source',
+  'accounts.disconnectClearMemoryHint':
+    'Permanently removes local memory chunks linked to this connection.',
   'accounts.searchAccounts': 'Search accounts...',
 
   // Channels
@@ -1414,6 +1417,7 @@ const en: TranslationMap = {
   'chat.deleteThread': 'Delete thread',
   'chat.deleteThreadConfirm': 'Are you sure you want to delete "{title}"?',
   'chat.untitledThread': 'Untitled thread',
+  'chat.editThreadTitle': 'Edit thread title',
   'chat.hideSidebar': 'Hide sidebar',
   'chat.showSidebar': 'Show sidebar',
   'chat.newThreadShortcut': 'New thread (/new)',
@@ -1582,6 +1586,18 @@ const en: TranslationMap = {
     'Use Reveal Folder to open the vault directory directly. Vault path:',
   'workspace.revealVaultFailed': "Couldn't reveal vault folder",
   'workspace.revealFolder': 'Reveal Folder',
+  'workspace.checkingVault': 'Checking…',
+  'workspace.vaultNotRegisteredHelp':
+    'Obsidian only opens folders you\'ve added as a vault. In Obsidian, choose "Open folder as vault" and pick the folder below — you only need to do this once. Then click View Vault again.',
+  'workspace.obsidianNotFoundHelp':
+    "We couldn't find Obsidian on this device. Install it, or — if it's installed somewhere non-standard — set its config folder under Advanced.",
+  'workspace.openAnyway': 'Open in Obsidian anyway',
+  'workspace.installObsidian': 'Install Obsidian',
+  'workspace.obsidianAdvanced': 'Obsidian installed elsewhere?',
+  'workspace.obsidianConfigDirLabel': 'Obsidian config folder',
+  'workspace.obsidianConfigDirHint':
+    'Path to the folder containing obsidian.json (e.g. ~/.config/obsidian). Leave blank to auto-detect.',
+  'workspace.obsidianConfigDirPlaceholder': '~/.config/obsidian',
   'workspace.graphLoadFailed': 'Failed to load memory graph',
   'workspace.loadingGraph': 'Loading memory graph...',
   'workspace.graphViewMode': 'Memory graph view mode',
@@ -1750,6 +1766,13 @@ const en: TranslationMap = {
   'bootCheck.restartUpdateCore': 'Restart / Update Runtime',
   'bootCheck.unexpectedError': 'Unexpected Boot-Check Error',
   'bootCheck.actionFailed': 'Something went wrong. Please try again.',
+  'bootCheck.portConflictTitle': "Couldn't Start the App Engine",
+  'bootCheck.portConflictBody':
+    "Another process is using the network port OpenHuman needs. We'll try to fix this automatically.",
+  'bootCheck.portConflictFixButton': 'Fix Automatically',
+  'bootCheck.portConflictFixing': 'Fixing…',
+  'bootCheck.portConflictFixFailed':
+    "Automatic fix didn't work. Please restart your computer and try again.",
 
   // Notifications: category labels & timestamps
   'notifications.justNow': 'just now',
@@ -2031,6 +2054,12 @@ const en: TranslationMap = {
   'channels.web.displayName': 'Web',
   'channels.web.description': 'Chat via the built-in web UI.',
   'channels.web.authMode.managed_dm.description': 'Use the embedded web chat — no setup required.',
+  'channels.yuanbao.connect': 'Connect',
+  'channels.yuanbao.connecting': 'Connecting…',
+  'channels.yuanbao.fieldRequired': '{field} is required',
+  'channels.yuanbao.reconnect': 'Reconnect',
+  'channels.yuanbao.savedRestartRequired': 'Channel saved. Restart the app to activate it.',
+  'channels.yuanbao.unexpectedStatus': 'Unexpected connection status: {status}',
   'chat.unsubscribeApproval.approve': 'Approve & Unsubscribe',
   'chat.unsubscribeApproval.approved': '✓ Successfully unsubscribed.',
   'chat.unsubscribeApproval.denied': '✕ Request denied.',
@@ -3044,6 +3073,30 @@ const en: TranslationMap = {
   'settings.mascot.voice.useLocaleDefault': 'Match the app language',
   'settings.mascot.voice.useLocaleDefaultDesc':
     'Auto-pick a voice for the current interface language.',
+  'settings.persona.title': 'Persona',
+  'settings.persona.menuTitle': 'Persona',
+  'settings.persona.menuDesc':
+    'Name, personality, avatar, and voice — your assistant as one identity',
+  'settings.persona.identityHeading': 'Identity',
+  'settings.persona.identityDesc':
+    'A display name and short description for your assistant. Shown in the app; does not change how the assistant reasons.',
+  'settings.persona.displayNameLabel': 'Display name',
+  'settings.persona.displayNamePlaceholder': 'e.g. Nova',
+  'settings.persona.descriptionLabel': 'Description',
+  'settings.persona.descriptionPlaceholder': 'e.g. A calm, concise assistant for my team.',
+  'settings.persona.soul.heading': 'Personality (SOUL.md)',
+  'settings.persona.soul.desc':
+    'The personality prompt the assistant follows in every conversation. Edits are saved to your workspace and take effect on the next reply.',
+  'settings.persona.soul.editorLabel': 'SOUL.md contents',
+  'settings.persona.soul.reset': 'Reset to default',
+  'settings.persona.soul.usingDefault': 'Using the bundled default',
+  'settings.persona.soul.loadError': 'Could not load SOUL.md',
+  'settings.persona.soul.saveError': 'Could not save SOUL.md',
+  'settings.persona.soul.resetError': 'Could not reset SOUL.md',
+  'settings.persona.appearanceHeading': 'Avatar & Voice',
+  'settings.persona.appearanceDesc':
+    'Mascot color, custom GIF avatar, and reply voice are configured in Mascot settings.',
+  'settings.persona.openMascotSettings': 'Open Mascot settings',
   'settings.memoryWindow.balanced.badge': 'Recommended',
   'settings.memoryWindow.balanced.hint':
     'Sensible default — good continuity without burning extra tokens on every run.',
@@ -3084,6 +3137,7 @@ const en: TranslationMap = {
   'skills.channelIcon.imessage': 'iMessage',
   'skills.channelIcon.telegram': 'Telegram',
   'skills.channelIcon.web': 'Web',
+  'skills.channelIcon.yuanbao': 'Yuanbao',
   'skills.composio.poweredBy': 'Powered by Composio',
   'skills.composio.staleStatusTitle': 'Connections are showing stale status',
   'skills.create.allowedTools': 'Allowed tools',
