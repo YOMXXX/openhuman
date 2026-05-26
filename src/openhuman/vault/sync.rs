@@ -94,7 +94,7 @@ struct FileToProcess {
     prev_hash: Option<String>,
     /// Document ID to update on re-ingest (keeps embedding lineage stable).
     existing_doc_id: Option<String>,
-    /// Memory namespace (`vault:<id>`).
+    /// Memory namespace derived from the vault id.
     namespace: String,
     /// Vault id for tags and state updates.
     vault_id: String,
