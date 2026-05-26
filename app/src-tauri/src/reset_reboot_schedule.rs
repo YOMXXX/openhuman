@@ -16,10 +16,15 @@
 //! Reference:
 //!   https://learn.microsoft.com/en-us/windows/win32/api/winbase/nf-winbase-movefileexw
 //!
-//! Privileges: scheduling a delete-on-reboot for a file the calling user
-//! already owns does not require elevation — the entries are queued in the
-//! per-user `PendingFileRenameOperations` registry value processed by
-//! `smss.exe` at the next boot.
+//! Privileges: `MoveFileExW(.., NULL, MOVEFILE_DELAY_UNTIL_REBOOT)` writes
+//! to `HKLM\SYSTEM\CurrentControlSet\Control\Session Manager\PendingFileRenameOperations`
+//! (the boot-time session manager reads from HKLM, not the per-user hive),
+//! so the call **may fail for non-administrator users** with `ERROR_ACCESS_DENIED`.
+//! That is by design — Microsoft documents the elevation requirement on the
+//! `MOVEFILE_DELAY_UNTIL_REBOOT` flag — and the caller in `lib.rs` handles
+//! the failure path gracefully: it preserves the original lock error plus
+//! the schedule failure reason and falls back to the "close all OpenHuman
+//! windows and try again" guidance from PR #2395 / #1811.
 
 #![cfg(target_os = "windows")]
 
@@ -32,10 +37,19 @@ use windows_sys::Win32::Storage::FileSystem::{MoveFileExW, MOVEFILE_DELAY_UNTIL_
 /// Tally of entries handed off to `MoveFileExW`, returned to the caller so
 /// it can log and surface (e.g. "scheduled 142 files / 14 dirs for deletion
 /// on next reboot") instead of just an opaque "ok".
+///
+/// `partial` is `true` when the walk aborted mid-tree (e.g. a directory
+/// became unreadable, or an individual `MoveFileExW` call failed). In that
+/// case `files` / `dirs` represent **only** what was queued before the
+/// failure point — useful for support logs to distinguish "everything is
+/// queued" from "some of the tree is queued but the rest still needs
+/// manual cleanup." Pair with the `Result::Err` returned by
+/// [`schedule_path_for_reboot_deletion`] for the cause.
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
 pub struct RebootDeletionSchedule {
     pub files: u32,
     pub dirs: u32,
+    pub partial: bool,
 }
 
 impl RebootDeletionSchedule {
@@ -52,14 +66,59 @@ impl RebootDeletionSchedule {
 ///   * Directories → children scheduled first (depth-first), then the
 ///     directory itself once its contents are queued.
 ///
-/// `path` not existing on disk yields `Err(ErrorKind::NotFound)` — callers
-/// can choose to treat that as a no-op since "nothing to remove" is the
-/// same outcome.
-pub fn schedule_path_for_reboot_deletion(path: &Path) -> io::Result<RebootDeletionSchedule> {
-    let metadata = std::fs::symlink_metadata(path)?;
+/// `path` not existing on disk yields `Err(RebootDeletionFailure { error: NotFound, .. })` —
+/// callers can choose to treat that as a no-op since "nothing to remove" is
+/// the same outcome.
+///
+/// On error the failure carries a partially-populated `RebootDeletionSchedule`
+/// (`partial = true`) so the caller can surface "we queued N files and M
+/// folders before scheduling failed" instead of just the bare io error.
+/// The walk is depth-first, so the counts reflect entries queued *before*
+/// the failing step.
+pub fn schedule_path_for_reboot_deletion(
+    path: &Path,
+) -> Result<RebootDeletionSchedule, RebootDeletionFailure> {
+    let metadata = std::fs::symlink_metadata(path).map_err(|error| RebootDeletionFailure {
+        error,
+        partial: RebootDeletionSchedule {
+            partial: true,
+            ..RebootDeletionSchedule::default()
+        },
+    })?;
     let mut summary = RebootDeletionSchedule::default();
-    schedule_inner(path, &metadata, &mut summary)?;
-    Ok(summary)
+    match schedule_inner(path, &metadata, &mut summary) {
+        Ok(()) => Ok(summary),
+        Err(error) => {
+            summary.partial = true;
+            Err(RebootDeletionFailure {
+                error,
+                partial: summary,
+            })
+        }
+    }
+}
+
+/// Pair of `(io::Error, partial schedule)` returned when the depth-first
+/// walk aborts mid-tree. The `partial` field records what was queued via
+/// `MoveFileExW` *before* the failure point so the caller can include the
+/// counts in user-facing copy and support logs ("123 files / 7 folders
+/// were queued for the next reboot before scheduling failed: <reason>").
+#[derive(Debug)]
+pub struct RebootDeletionFailure {
+    pub error: io::Error,
+    pub partial: RebootDeletionSchedule,
+}
+
+impl std::fmt::Display for RebootDeletionFailure {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.error)
+    }
+}
+
+impl std::error::Error for RebootDeletionFailure {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        Some(&self.error)
+    }
 }
 
 fn schedule_inner(
@@ -87,6 +146,18 @@ fn schedule_inner(
 }
 
 fn schedule_one(path: &Path) -> io::Result<()> {
+    // `MoveFileExW + MOVEFILE_DELAY_UNTIL_REBOOT` requires absolute paths —
+    // the session manager runs at boot before any working directory is
+    // established, so a relative path cannot be resolved. The call sites
+    // in `reset_local_data` already resolve paths via the core's
+    // `config_get_data_paths` RPC (which returns absolute paths) so this
+    // is currently a no-op in release builds; the assert catches a future
+    // regression that wires a different caller in without thinking.
+    debug_assert!(
+        path.is_absolute(),
+        "MoveFileExW + DELAY_UNTIL_REBOOT requires an absolute path, got {}",
+        path.display()
+    );
     let wide: Vec<u16> = path
         .as_os_str()
         .encode_wide()
@@ -140,7 +211,14 @@ mod tests {
         std::fs::write(&file, b"x").expect("write solo.txt");
 
         let summary = schedule_path_for_reboot_deletion(&file).expect("schedule");
-        assert_eq!(summary, RebootDeletionSchedule { files: 1, dirs: 0 });
+        assert_eq!(
+            summary,
+            RebootDeletionSchedule {
+                files: 1,
+                dirs: 0,
+                partial: false,
+            }
+        );
     }
 
     #[test]
@@ -149,8 +227,13 @@ mod tests {
         let dir = tempfile::tempdir().expect("tempdir");
         let missing = dir.path().join("does-not-exist");
 
-        let err = schedule_path_for_reboot_deletion(&missing).expect_err("missing");
-        assert_eq!(err.kind(), io::ErrorKind::NotFound);
+        let failure = schedule_path_for_reboot_deletion(&missing).expect_err("missing");
+        assert_eq!(failure.error.kind(), io::ErrorKind::NotFound);
+        // Nothing scheduled, but partial flag still reports "did not
+        // complete" so callers can distinguish from a clean success.
+        assert!(failure.partial.partial);
+        assert_eq!(failure.partial.files, 0);
+        assert_eq!(failure.partial.dirs, 0);
     }
 
     #[test]
@@ -161,6 +244,13 @@ mod tests {
         std::fs::create_dir(&empty).expect("mkdir empty-target");
 
         let summary = schedule_path_for_reboot_deletion(&empty).expect("schedule");
-        assert_eq!(summary, RebootDeletionSchedule { files: 0, dirs: 1 });
+        assert_eq!(
+            summary,
+            RebootDeletionSchedule {
+                files: 0,
+                dirs: 1,
+                partial: false,
+            }
+        );
     }
 }

@@ -526,15 +526,30 @@ fn schedule_reboot_delete_or_describe(
                 summary.dirs,
             )
         }
-        Err(schedule_err) => {
+        Err(failure) => {
+            let partial_total = failure.partial.total();
             log::error!(
-                "[core] reset_local_data: reboot delete fallback failed for {label} at {}: {schedule_err}",
-                path.display()
+                "[core] reset_local_data: reboot delete fallback failed for {label} at {}: {} (partial schedule: files={}, dirs={})",
+                path.display(),
+                failure.error,
+                failure.partial.files,
+                failure.partial.dirs,
             );
-            format!(
-                "Failed to remove {label} at {} because it is locked by another OpenHuman window or process, and scheduling deletion on next reboot also failed ({schedule_err}). Close all OpenHuman windows and try again. ({original_error})",
-                path.display()
-            )
+            if partial_total == 0 {
+                format!(
+                    "Failed to remove {label} at {} because it is locked by another OpenHuman window or process, and scheduling deletion on next reboot also failed ({}). Close all OpenHuman windows and try again. ({original_error})",
+                    path.display(),
+                    failure.error,
+                )
+            } else {
+                format!(
+                    "Failed to remove {label} at {} because it is locked by another OpenHuman window or process. {} files and {} folders were queued for the next reboot before scheduling failed ({}); the rest still needs manual cleanup. Close all OpenHuman windows and try again. ({original_error})",
+                    path.display(),
+                    failure.partial.files,
+                    failure.partial.dirs,
+                    failure.error,
+                )
+            }
         }
     }
 }
@@ -3693,8 +3708,10 @@ mod tests {
         // message should report how much has been queued so the support
         // log preserves "what was actually scheduled". Scheduling itself
         // may still fail at the MoveFileExW step in unprivileged test
-        // processes (the registry key write requires administrator); in
-        // that case fall back to checking the diagnostic copy.
+        // processes (the registry key write requires administrator); the
+        // fallback then carries a partial schedule that the error path
+        // surfaces, so both branches must keep mentioning the lock cause
+        // *and* expose either the queued counts or the schedule failure.
         let dir = tempfile::tempdir().expect("tempdir for reset error test");
         let target = dir.path().join("reset-mock");
         std::fs::create_dir_all(target.join("nested")).expect("mkdir nested");
@@ -3706,10 +3723,18 @@ mod tests {
 
         let admin_path = msg.contains("queued for deletion the next time you restart Windows")
             && msg.contains("2 files and 2 folders");
-        let user_path = msg.contains("scheduling deletion on next reboot also failed");
+        let user_full_fail = msg.contains("scheduling deletion on next reboot also failed");
+        let user_partial = msg.contains("queued for the next reboot before scheduling failed");
         assert!(
-            admin_path || user_path,
-            "expected either reboot-scheduled or reboot-fallback-failed message, got: {msg}"
+            admin_path || user_full_fail || user_partial,
+            "expected reboot-scheduled, fully-failed, or partial-fail message, got: {msg}"
+        );
+        // Whatever branch we land on, the user must still be told the lock
+        // is what blocked the immediate removal.
+        assert!(
+            msg.contains("locked by another OpenHuman window or process")
+                || msg.contains("another process is holding it open"),
+            "missing lock cause: {msg}"
         );
     }
 

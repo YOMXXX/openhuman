@@ -420,6 +420,14 @@ mod tests {
     /// concurrent env-var writes would race.
     static ENV_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
+    /// Serialize tests that mutate the process-global `FILE_GUARD` static.
+    /// Without this, `shutdown_file_guard_takes_installed_guard` can race
+    /// any concurrent test that calls `init_for_embedded` (or that itself
+    /// stashes / takes the guard), making one of them observe a guard it
+    /// did not install. Mirror of the `SCHEDULE_LOCK` pattern in
+    /// `app/src-tauri/src/reset_reboot_schedule.rs::tests`.
+    static FILE_GUARD_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
     fn with_clean_rust_log<R>(f: impl FnOnce() -> R) -> R {
         let _guard = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         let prior = std::env::var("RUST_LOG").ok();
@@ -533,6 +541,8 @@ mod tests {
 
     #[test]
     fn shutdown_file_guard_takes_installed_guard() {
+        let _g = FILE_GUARD_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+
         // Simulate `init_for_embedded` having stashed a writer guard, then
         // assert that `shutdown_file_guard` empties the slot and reports
         // truthfully.
