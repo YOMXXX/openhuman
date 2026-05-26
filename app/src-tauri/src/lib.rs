@@ -528,7 +528,8 @@ fn schedule_reboot_delete_or_describe(
         }
         Err(schedule_err) => {
             log::error!(
-                "[core] reset_local_data: reboot delete fallback failed for {label} at {}: {schedule_err}"
+                "[core] reset_local_data: reboot delete fallback failed for {label} at {}: {schedule_err}",
+                path.display()
             );
             format!(
                 "Failed to remove {label} at {} because it is locked by another OpenHuman window or process, and scheduling deletion on next reboot also failed ({schedule_err}). Close all OpenHuman windows and try again. ({original_error})",
