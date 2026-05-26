@@ -32,6 +32,8 @@ mod native_notifications;
 mod notification_settings;
 mod process_kill;
 mod process_recovery;
+#[cfg(target_os = "windows")]
+mod reset_reboot_schedule;
 mod screen_capture;
 mod slack_scanner;
 mod telegram_scanner;
@@ -380,6 +382,18 @@ async fn reset_local_data(
     state.inner().shutdown().await;
     log::info!("[core] reset_local_data: embedded core stopped");
 
+    // ── 3b. Release the host-process log file handle (issue #1615) ──────
+    //
+    // The daily-rotating log appender at `<data_dir>/logs/openhuman-*.log`
+    // is owned by *this* Tauri host process, not by the embedded core
+    // tokio task — so `shutdown()` above does not release it. On Windows
+    // that lingering OS file handle causes `remove_dir_all(.openhuman)`
+    // below to fail with `ERROR_SHARING_VIOLATION` (os error 32). Drop
+    // the writer guard now so the background flushing thread exits and
+    // the file handle is closed before the removal walks the tree.
+    let log_guard_dropped = openhuman_core::core::logging::shutdown_file_guard();
+    log::info!("[core] reset_local_data: shutdown_file_guard dropped guard = {log_guard_dropped}");
+
     // ── 4. Remove the paths ─────────────────────────────────────────────
     //
     // Missing entries are non-fatal: the user may already have manually
@@ -456,13 +470,72 @@ fn reset_local_data_delete_error(
             "[core] reset_local_data: Windows file lock blocked removal of {label} at {}: {error}",
             path.display()
         );
-        return format!(
-            "Failed to remove {label} at {} because it is locked by another OpenHuman window or process. Close all OpenHuman windows and try again. ({error})",
-            path.display()
-        );
+
+        // Fallback: queue the still-locked sub-tree for deletion on the
+        // next Windows boot via MoveFileExW + MOVEFILE_DELAY_UNTIL_REBOOT.
+        // By this point in `reset_local_data` we have already:
+        //   * shut down the embedded core (drops every SQLite/log handle
+        //     the core task held), and
+        //   * released the host-process log appender via
+        //     `shutdown_file_guard()` (drops the rolling log file handle).
+        // So any remaining lock now comes from *outside* this process —
+        // anti-virus / file indexer / sibling app / Explorer — and cannot
+        // be released by closing more OpenHuman windows. See issue #1615.
+        #[cfg(target_os = "windows")]
+        {
+            return schedule_reboot_delete_or_describe(label, path, error);
+        }
+        // `is_windows_file_lock_error` is gated on `cfg!(windows)`, so on
+        // Linux/macOS this branch is unreachable at runtime — but cargo
+        // still type-checks the file for those targets and needs a value
+        // of type `String`.
+        #[cfg(not(target_os = "windows"))]
+        {
+            return format!(
+                "Failed to remove {label} at {} because it is locked by another OpenHuman window or process. Close all OpenHuman windows and try again. ({error})",
+                path.display()
+            );
+        }
     }
 
     format!("Failed to remove {label} at {}: {error}", path.display())
+}
+
+/// Windows-only: ask the session manager to delete `path` (and its
+/// children if it is a directory) on the next reboot, and return a
+/// user-facing message describing the outcome. Surfaces the original lock
+/// error and the schedule counts so the support log carries both.
+#[cfg(target_os = "windows")]
+fn schedule_reboot_delete_or_describe(
+    label: &str,
+    path: &std::path::Path,
+    original_error: &std::io::Error,
+) -> String {
+    match reset_reboot_schedule::schedule_path_for_reboot_deletion(path) {
+        Ok(summary) => {
+            log::info!(
+                "[core] reset_local_data: scheduled {label} at {} for reboot deletion (files={}, dirs={})",
+                path.display(),
+                summary.files,
+                summary.dirs
+            );
+            format!(
+                "Couldn't remove {label} at {} right now because another process is holding it open ({original_error}). {} files and {} folders have been queued for deletion the next time you restart Windows — restart soon to finish the reset.",
+                path.display(),
+                summary.files,
+                summary.dirs,
+            )
+        }
+        Err(schedule_err) => {
+            log::error!(
+                "[core] reset_local_data: reboot delete fallback failed for {label} at {}: {schedule_err}"
+            );
+            format!(
+                "Failed to remove {label} at {} because it is locked by another OpenHuman window or process, and scheduling deletion on next reboot also failed ({schedule_err}). Close all OpenHuman windows and try again. ({original_error})",
+                path.display()
+            )
+        }
+    }
 }
 
 /// Call the core's `config_get_data_paths` RPC and parse the response.
@@ -3587,16 +3660,56 @@ mod tests {
 
     #[cfg(windows)]
     #[test]
-    fn reset_local_data_delete_error_explains_windows_file_locks() {
-        let err = std::io::Error::from_raw_os_error(32);
-        let msg = reset_local_data_delete_error(
-            "current openhuman dir",
-            std::path::Path::new("C:\\Users\\me\\.openhuman"),
-            &err,
-        );
+    fn reset_local_data_delete_error_explains_windows_file_locks_when_reboot_fallback_fails() {
+        // For a non-existent path the reboot-delete fallback's
+        // `symlink_metadata` returns NotFound and the error message must
+        // fall through to the "close windows / try again" guidance — the
+        // user still needs an action they can take.
+        let dir = tempfile::tempdir().expect("tempdir for reset error test");
+        let missing = dir.path().join("definitely-not-there");
 
-        assert!(msg.contains("locked by another OpenHuman window or process"));
-        assert!(msg.contains("Close all OpenHuman windows and try again"));
+        let err = std::io::Error::from_raw_os_error(32);
+        let msg = reset_local_data_delete_error("current openhuman dir", &missing, &err);
+
+        assert!(
+            msg.contains("locked by another OpenHuman window or process"),
+            "missing lock guidance: {msg}"
+        );
+        assert!(
+            msg.contains("scheduling deletion on next reboot also failed"),
+            "missing reboot-fallback diagnostic: {msg}"
+        );
+        assert!(
+            msg.contains("Close all OpenHuman windows and try again"),
+            "missing actionable guidance: {msg}"
+        );
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn reset_local_data_delete_error_reports_reboot_schedule_counts() {
+        // When the lock fallback can walk a real directory tree, the user
+        // message should report how much has been queued so the support
+        // log preserves "what was actually scheduled". Scheduling itself
+        // may still fail at the MoveFileExW step in unprivileged test
+        // processes (the registry key write requires administrator); in
+        // that case fall back to checking the diagnostic copy.
+        let dir = tempfile::tempdir().expect("tempdir for reset error test");
+        let target = dir.path().join("reset-mock");
+        std::fs::create_dir_all(target.join("nested")).expect("mkdir nested");
+        std::fs::write(target.join("a.txt"), b"x").expect("write a.txt");
+        std::fs::write(target.join("nested").join("b.txt"), b"y").expect("write b.txt");
+
+        let err = std::io::Error::from_raw_os_error(32);
+        let msg = reset_local_data_delete_error("current openhuman dir", &target, &err);
+
+        let admin_path = msg.contains("queued for deletion the next time you restart Windows")
+            && msg.contains("2 files and 2 folders");
+        let user_path = msg.contains("scheduling deletion on next reboot also failed");
+        assert!(
+            admin_path || user_path,
+            "expected either reboot-scheduled or reboot-fallback-failed message, got: {msg}"
+        );
     }
 
     /// Tests for setup_tray conditional compilation
