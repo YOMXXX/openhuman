@@ -460,11 +460,17 @@ fn is_windows_file_lock_error(error: &std::io::Error) -> bool {
     cfg!(windows) && is_windows_file_lock_raw_os_error(error.raw_os_error())
 }
 
+/// Returns:
+///   * `Ok(())` — the underlying remove failure should be swallowed (e.g.
+///     the path disappeared between the failed `remove_*` call and the
+///     reboot-fallback walk, so there is nothing left to clean up).
+///   * `Err(msg)` — a user-facing failure message the caller should surface
+///     to the UI / propagate up the reset flow.
 fn reset_local_data_delete_error(
     label: &str,
     path: &std::path::Path,
     error: &std::io::Error,
-) -> String {
+) -> Result<(), String> {
     if is_windows_file_lock_error(error) {
         log::warn!(
             "[core] reset_local_data: Windows file lock blocked removal of {label} at {}: {error}",
@@ -491,26 +497,29 @@ fn reset_local_data_delete_error(
         // of type `String`.
         #[cfg(not(target_os = "windows"))]
         {
-            return format!(
+            return Err(format!(
                 "Failed to remove {label} at {} because it is locked by another OpenHuman window or process. Close all OpenHuman windows and try again. ({error})",
                 path.display()
-            );
+            ));
         }
     }
 
-    format!("Failed to remove {label} at {}: {error}", path.display())
+    Err(format!(
+        "Failed to remove {label} at {}: {error}",
+        path.display()
+    ))
 }
 
 /// Windows-only: ask the session manager to delete `path` (and its
-/// children if it is a directory) on the next reboot, and return a
-/// user-facing message describing the outcome. Surfaces the original lock
-/// error and the schedule counts so the support log carries both.
+/// children if it is a directory) on the next reboot, and return either a
+/// user-facing message describing the outcome or `Ok(())` when the
+/// underlying failure should be treated as already-cleaned-up.
 #[cfg(target_os = "windows")]
 fn schedule_reboot_delete_or_describe(
     label: &str,
     path: &std::path::Path,
     original_error: &std::io::Error,
-) -> String {
+) -> Result<(), String> {
     match reset_reboot_schedule::schedule_path_for_reboot_deletion(path) {
         Ok(summary) => {
             log::info!(
@@ -519,12 +528,30 @@ fn schedule_reboot_delete_or_describe(
                 summary.files,
                 summary.dirs
             );
-            format!(
+            Err(format!(
                 "Couldn't remove {label} at {} right now because another process is holding it open ({original_error}). {} files and {} folders have been queued for deletion the next time you restart Windows — restart soon to finish the reset.",
                 path.display(),
                 summary.files,
                 summary.dirs,
-            )
+            ))
+        }
+        // Race condition: the still-locked path disappeared between the
+        // `remove_*` call that failed with `ERROR_SHARING_VIOLATION` and
+        // the metadata read inside the reboot-schedule walk. Whoever else
+        // held the handle has already finished cleaning up, so the reset
+        // goal is achieved — swallow the original lock error and treat
+        // this as success. The empty partial schedule (no entries queued
+        // yet) is what distinguishes "vanished cleanly" from "started
+        // walking, then hit a real error."
+        Err(failure)
+            if failure.error.kind() == std::io::ErrorKind::NotFound
+                && failure.partial.total() == 0 =>
+        {
+            log::info!(
+                "[core] reset_local_data: {label} at {} disappeared between lock failure and reboot fallback; treating as removed",
+                path.display(),
+            );
+            Ok(())
         }
         Err(failure) => {
             let partial_total = failure.partial.total();
@@ -536,19 +563,19 @@ fn schedule_reboot_delete_or_describe(
                 failure.partial.dirs,
             );
             if partial_total == 0 {
-                format!(
+                Err(format!(
                     "Failed to remove {label} at {} because it is locked by another OpenHuman window or process, and scheduling deletion on next reboot also failed ({}). Close all OpenHuman windows and try again. ({original_error})",
                     path.display(),
                     failure.error,
-                )
+                ))
             } else {
-                format!(
+                Err(format!(
                     "Failed to remove {label} at {} because it is locked by another OpenHuman window or process. {} files and {} folders were queued for the next reboot before scheduling failed ({}); the rest still needs manual cleanup. Close all OpenHuman windows and try again. ({original_error})",
                     path.display(),
                     failure.partial.files,
                     failure.partial.dirs,
                     failure.error,
-                )
+                ))
             }
         }
     }
@@ -621,7 +648,7 @@ async fn remove_path_if_exists(path: &std::path::Path, label: &str) -> Result<()
             );
             Ok(())
         }
-        Err(e) => Err(reset_local_data_delete_error(label, path, &e)),
+        Err(e) => reset_local_data_delete_error(label, path, &e),
     }
 }
 
@@ -642,7 +669,7 @@ async fn remove_dir_if_exists(path: &std::path::Path, label: &str) -> Result<(),
             );
             Ok(())
         }
-        Err(e) => Err(reset_local_data_delete_error(label, path, &e)),
+        Err(e) => reset_local_data_delete_error(label, path, &e),
     }
 }
 
@@ -3664,40 +3691,34 @@ mod tests {
     #[test]
     fn reset_local_data_delete_error_keeps_generic_message_for_other_errors() {
         let err = std::io::Error::from(std::io::ErrorKind::PermissionDenied);
-        let msg = reset_local_data_delete_error(
+        let result = reset_local_data_delete_error(
             "current openhuman dir",
             std::path::Path::new("/tmp/openhuman"),
             &err,
         );
 
+        let msg = result.expect_err("non-lock errors must still surface to the UI");
         assert!(msg.starts_with("Failed to remove current openhuman dir at /tmp/openhuman:"));
         assert!(!msg.contains("Close all OpenHuman windows and try again"));
     }
 
     #[cfg(windows)]
     #[test]
-    fn reset_local_data_delete_error_explains_windows_file_locks_when_reboot_fallback_fails() {
-        // For a non-existent path the reboot-delete fallback's
-        // `symlink_metadata` returns NotFound and the error message must
-        // fall through to the "close windows / try again" guidance — the
-        // user still needs an action they can take.
+    fn reset_local_data_delete_error_swallows_lock_failure_when_path_disappeared() {
+        // Race condition the reboot fallback now handles: the locked path
+        // was gone by the time `schedule_path_for_reboot_deletion` ran its
+        // `symlink_metadata` probe, so the reset goal is already met. The
+        // helper must return `Ok(())` rather than surfacing a confusing
+        // "couldn't remove (it's not there)" toast.
         let dir = tempfile::tempdir().expect("tempdir for reset error test");
         let missing = dir.path().join("definitely-not-there");
 
         let err = std::io::Error::from_raw_os_error(32);
-        let msg = reset_local_data_delete_error("current openhuman dir", &missing, &err);
+        let result = reset_local_data_delete_error("current openhuman dir", &missing, &err);
 
         assert!(
-            msg.contains("locked by another OpenHuman window or process"),
-            "missing lock guidance: {msg}"
-        );
-        assert!(
-            msg.contains("scheduling deletion on next reboot also failed"),
-            "missing reboot-fallback diagnostic: {msg}"
-        );
-        assert!(
-            msg.contains("Close all OpenHuman windows and try again"),
-            "missing actionable guidance: {msg}"
+            result.is_ok(),
+            "expected NotFound + empty partial schedule to be swallowed as success, got {result:?}"
         );
     }
 
@@ -3719,8 +3740,13 @@ mod tests {
         std::fs::write(target.join("nested").join("b.txt"), b"y").expect("write b.txt");
 
         let err = std::io::Error::from_raw_os_error(32);
-        let msg = reset_local_data_delete_error("current openhuman dir", &target, &err);
+        let result = reset_local_data_delete_error("current openhuman dir", &target, &err);
 
+        // Path exists on disk, so the fallback must surface the outcome —
+        // either an "all-queued" success-but-needs-reboot message (admin)
+        // or one of the failure flavours (non-admin).
+        let msg = result
+            .expect_err("path exists, fallback must report queued counts or scheduling failure");
         let admin_path = msg.contains("queued for deletion the next time you restart Windows")
             && msg.contains("2 files and 2 folders");
         let user_full_fail = msg.contains("scheduling deletion on next reboot also failed");
