@@ -23,11 +23,6 @@ pub fn security_policy_info_for_config(config: &Config) -> RpcOutcome<serde_json
     RpcOutcome::single_log(payload, "security_policy_info computed from active config")
 }
 
-pub fn security_policy_info() -> RpcOutcome<serde_json::Value> {
-    let config = Config::default();
-    security_policy_info_for_config(&config)
-}
-
 pub async fn load_and_get_security_policy_info() -> Result<RpcOutcome<serde_json::Value>, String> {
     let config = crate::openhuman::config::ops::load_config_with_timeout().await?;
     Ok(security_policy_info_for_config(&config))
@@ -41,7 +36,7 @@ mod tests {
     fn security_policy_info_returns_all_documented_fields() {
         // Locks in the JSON shape the JSON-RPC clients depend on —
         // any rename / removal of a field would break the UI.
-        let outcome = security_policy_info();
+        let outcome = security_policy_info_for_config(&Config::default());
         for key in [
             "autonomy",
             "workspace_only",
@@ -64,7 +59,7 @@ mod tests {
 
     #[test]
     fn security_policy_info_matches_default_config_policy_values() {
-        let outcome = security_policy_info();
+        let outcome = security_policy_info_for_config(&Config::default());
         let config = Config::default();
         let default = SecurityPolicy::from_config(&config.autonomy, &config.workspace_dir);
         assert_eq!(outcome.value["autonomy"], json!(default.autonomy));
