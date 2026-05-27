@@ -2,6 +2,12 @@
  * Vitest for `<MemoryTreeStatusPanel />`. Covers the four-tile dashboard,
  * the toggle round-trip (calls `memoryTreeSetEnabled` and re-fetches),
  * paused/error rendering branches, and the failure → retry path.
+ *
+ * Fake timers are pinned in `beforeEach` so `Date.now()` (in
+ * `formatRelativeMs` and the `payload()` helper) yields the same value on
+ * every assertion, and the polling `setTimeout` cannot race CI runners.
+ * The first `fetchOnce()` still resolves as a microtask via `waitFor`, so
+ * the suite never needs to advance timers manually.
  */
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -24,11 +30,14 @@ vi.mock('../../utils/tauriCommands', async importOriginal => {
   };
 });
 
+/** Stable wall-clock used by every test in this file. */
+const FIXED_NOW_MS = new Date('2026-01-01T12:00:00.000Z').getTime();
+
 function payload(overrides: Partial<MemoryTreePipelineStatus> = {}): MemoryTreePipelineStatus {
   return {
     status: 'running',
     reason: null,
-    last_sync_ms: Date.now() - 5 * 60 * 1000, // 5 minutes ago
+    last_sync_ms: FIXED_NOW_MS - 5 * 60 * 1000, // 5 minutes ago (stable under fake timers)
     total_chunks: 1234,
     wiki_size_bytes: 2 * 1024 * 1024, // 2 MiB
     pipeline_jobs: { ready: 0, running: 0, failed: 0 },
@@ -40,11 +49,19 @@ function payload(overrides: Partial<MemoryTreePipelineStatus> = {}): MemoryTreeP
 
 describe('<MemoryTreeStatusPanel />', () => {
   beforeEach(() => {
+    // `shouldAdvanceTime` lets fake `setTimeout`/`setInterval` tick at the
+    // real-time cadence so RTL's `waitFor` (and the panel's polling loop)
+    // make progress without each test having to call
+    // `vi.advanceTimersByTime` manually — while `setSystemTime` still
+    // freezes `Date.now()` so `formatRelativeMs` resolves deterministically.
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    vi.setSystemTime(new Date(FIXED_NOW_MS));
     mockPipelineStatus.mockReset();
     mockSetEnabled.mockReset();
   });
 
   afterEach(() => {
+    vi.useRealTimers();
     vi.restoreAllMocks();
   });
 
