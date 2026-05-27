@@ -424,7 +424,7 @@ mod tests {
     }
 
     #[test]
-    fn resolve_workspace_path_returns_absolute_inside_workspace() {
+    fn resolve_workspace_path_resolves_memory_tree_content_inside_workspace() {
         let workspace = tempdir().unwrap();
         let docs = workspace.path().join("memory_tree").join("content");
         fs::create_dir_all(&docs).unwrap();
@@ -442,7 +442,7 @@ mod tests {
     }
 
     #[test]
-    fn resolve_workspace_path_rejects_empty_input() {
+    fn resolve_workspace_path_rejects_empty_whitespace_input() {
         let workspace = tempdir().unwrap();
 
         let err = resolve_workspace_path(workspace.path(), "   ").unwrap_err();
