@@ -142,14 +142,6 @@ export default function Intelligence() {
                     matches anything visible. Hidden until a memory_tree
                     -native count signal is exposed. */}
               </div>
-              {/* Header status pills used to live here, sourced from
-                  `useConsciousItems` + `useMemoryIngestionStatus`. They
-                  were superseded by the `MemoryTreeStatusPanel` that
-                  renders inside `MemoryWorkspace` (#1856 Part 1).
-                  Analyze Now / Refresh button was already removed in an
-                  earlier refactor — the MemoryWorkspace fetches via
-                  memory_tree RPCs that don't need a manual trigger. */}
-              <div className="flex items-center gap-3" />
             </div>
 
             {/* Tab content */}

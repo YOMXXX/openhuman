@@ -742,8 +742,8 @@ pub fn schemas(function: &str) -> ControllerSchema {
                 FieldSchema {
                     name: "wiki_size_bytes",
                     ty: TypeSchema::U64,
-                    comment: "Recursive on-disk size of the memory_tree content root. \
-                              0 when the directory does not exist yet.",
+                    comment: "Recursive on-disk size of the `wiki/` sub-tree under the \
+                              memory_tree content root. 0 when the directory does not exist yet.",
                     required: true,
                 },
                 FieldSchema {
