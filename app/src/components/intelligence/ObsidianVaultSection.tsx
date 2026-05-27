@@ -72,7 +72,16 @@ export function ObsidianVaultSection({ contentRootAbs, onToast }: ObsidianVaultS
   const fireDeepLink = useCallback(async (): Promise<unknown | null> => {
     console.debug('[ui-flow][obsidian-vault] firing deep link');
     try {
-      const absolutePath = await resolveWorkspaceAbsolutePath(MEMORY_CONTENT_WORKSPACE_PATH);
+      let absolutePath: string;
+      try {
+        absolutePath = await resolveWorkspaceAbsolutePath(MEMORY_CONTENT_WORKSPACE_PATH);
+      } catch {
+        // The content directory may not exist yet (fresh workspace). Fall
+        // back to the prop from the graph-export RPC — the deep link URL
+        // is still valid; Obsidian will surface its own "vault not found"
+        // error if the folder is truly missing.
+        absolutePath = contentRootAbs;
+      }
       const url = `obsidian://open?path=${encodeURIComponent(absolutePath)}`;
       await openUrl(url);
       return null;
@@ -80,7 +89,7 @@ export function ObsidianVaultSection({ contentRootAbs, onToast }: ObsidianVaultS
       console.error('[ui-flow][obsidian-vault] resolve/open failed', err);
       return err;
     }
-  }, []);
+  }, [contentRootAbs]);
 
   const reveal = useCallback(() => {
     void (async () => {

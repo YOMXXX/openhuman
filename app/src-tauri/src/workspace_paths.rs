@@ -235,7 +235,7 @@ pub(crate) fn resolve_workspace_path(
     log::debug!(
         "[workspace-paths] resolved workspace path: {} -> {}",
         normalized_path,
-        target.display()
+        workspace_path_label(workspace_root, &target)
     );
     Ok(target)
 }
