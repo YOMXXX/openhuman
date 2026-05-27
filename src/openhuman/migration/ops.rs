@@ -127,7 +127,10 @@ mod tests {
         match result {
             Ok(outcome) => {
                 assert!(
-                    outcome.logs.iter().any(|l| l.contains("migration completed")),
+                    outcome
+                        .logs
+                        .iter()
+                        .any(|l| l.contains("migration completed")),
                     "expected 'migration completed' log, got logs: {:?}",
                     outcome.logs
                 );
@@ -144,7 +147,11 @@ mod tests {
         let source = tmp.path().join("hermes-src");
         std::fs::create_dir_all(&source).unwrap();
         std::fs::write(source.join("MEMORY.md"), "# Agent memory\nremember this").unwrap();
-        std::fs::write(source.join("USER.md"), "# User profile\nprefers concise answers").unwrap();
+        std::fs::write(
+            source.join("USER.md"),
+            "# User profile\nprefers concise answers",
+        )
+        .unwrap();
 
         let outcome = migrate_hermes(&config, Some(source), false)
             .await

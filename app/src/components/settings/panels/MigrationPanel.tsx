@@ -4,8 +4,8 @@ import { useCallback, useState } from 'react';
 import { useT } from '../../../lib/i18n/I18nContext';
 import {
   type MigrationReport,
-  openhumanMigrateOpenclaw,
   openhumanMigrateHermes,
+  openhumanMigrateOpenclaw,
 } from '../../../utils/tauriCommands/core';
 import SettingsHeader from '../components/SettingsHeader';
 import { useSettingsNavigation } from '../hooks/useSettingsNavigation';
@@ -13,7 +13,6 @@ import { useSettingsNavigation } from '../hooks/useSettingsNavigation';
 const log = debug('migration-panel');
 
 type Vendor = 'openclaw' | 'hermes';
-
 
 interface MigrationPanelProps {
   /** When true, render without the SettingsHeader chrome (used when embedded
@@ -173,7 +172,11 @@ const MigrationPanel = ({ embedded = false }: MigrationPanelProps = {}) => {
               data-testid="migration-source-input"
               value={sourcePath}
               onChange={e => setSourcePath(e.target.value)}
-              placeholder={vendor === 'hermes' ? t('migration.sourcePlaceholderHermes') : t('migration.sourcePlaceholder')}
+              placeholder={
+                vendor === 'hermes'
+                  ? t('migration.sourcePlaceholderHermes')
+                  : t('migration.sourcePlaceholder')
+              }
               className="w-full rounded-md border border-stone-200 dark:border-neutral-800 bg-white dark:bg-neutral-900 px-3 py-2 text-sm text-stone-900 dark:text-neutral-100 placeholder:text-stone-400 dark:placeholder:text-neutral-500 focus:outline-none focus:ring-1 focus:ring-primary-400"
             />
             <p className="text-[11px] text-stone-500 dark:text-neutral-400">

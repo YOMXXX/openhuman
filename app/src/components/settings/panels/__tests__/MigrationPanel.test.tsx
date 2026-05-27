@@ -13,8 +13,8 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { renderWithProviders } from '../../../../test/test-utils';
 import {
   type MigrationReport,
-  openhumanMigrateOpenclaw,
   openhumanMigrateHermes,
+  openhumanMigrateOpenclaw,
 } from '../../../../utils/tauriCommands/core';
 import MigrationPanel from '../MigrationPanel';
 
@@ -22,11 +22,7 @@ vi.mock('../../../../utils/tauriCommands/core', async () => {
   const actual = await vi.importActual<typeof import('../../../../utils/tauriCommands/core')>(
     '../../../../utils/tauriCommands/core'
   );
-  return {
-    ...actual,
-    openhumanMigrateOpenclaw: vi.fn(),
-    openhumanMigrateHermes: vi.fn(),
-  };
+  return { ...actual, openhumanMigrateOpenclaw: vi.fn(), openhumanMigrateHermes: vi.fn() };
 });
 
 vi.mock('../../hooks/useSettingsNavigation', () => ({
