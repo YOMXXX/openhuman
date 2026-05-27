@@ -335,8 +335,11 @@ pub struct PipelineJobCounts {
 /// - `status` is a coarse, UI-shaped string (`running`/`paused`/`syncing`/
 ///   `error`/`idle`) derived from the other fields so the frontend stays
 ///   purely presentational.
-/// - `wiki_size_bytes` is a recursive walk of the on-disk content root;
-///   recomputed every call (cheap for typical workspaces).
+/// - `wiki_size_bytes` is a recursive walk of the on-disk `wiki/` sub-tree
+///   under the memory-tree content root; recomputed every call (cheap for
+///   typical workspaces). The walk is scoped to `wiki/` so the figure
+///   reflects the user-visible wiki only — not the sibling `raw/`,
+///   `email/`, `chat/`, `document/` staging directories.
 /// - `pipeline_jobs` is a snapshot of the queue — running > 0 implies
 ///   active sync, failed > 0 implies degraded.
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -357,8 +360,10 @@ pub struct PipelineStatusResponse {
     pub last_sync_ms: i64,
     /// Total `mem_tree_chunks` rows across all sources.
     pub total_chunks: u64,
-    /// Recursive byte size of the on-disk memory-tree content root. Zero
-    /// when the directory does not exist yet or cannot be read.
+    /// Recursive byte size of the on-disk `wiki/` sub-tree under the
+    /// memory-tree content root. Zero when the `wiki/` directory does not
+    /// exist yet or cannot be read. Scoped to `wiki/` so the value matches
+    /// the user-visible "Wiki size" tile (#1856 follow-up).
     pub wiki_size_bytes: u64,
     /// Snapshot counts from `mem_tree_jobs`.
     pub pipeline_jobs: PipelineJobCounts,
@@ -431,16 +436,19 @@ pub async fn pipeline_status_rpc(
         })??;
 
     // Disk size — best-effort. Permission errors etc. degrade to 0 with a
-    // warn log rather than failing the whole RPC.
-    let content_root = config.memory_tree_content_root();
-    let wiki_size_bytes =
-        tokio::task::spawn_blocking(move || compute_dir_size_bytes(&content_root))
-            .await
-            .map_err(|e| {
-                let msg = format!("pipeline_status size-walk join error: {e}");
-                log::warn!("[memory-tree][rpc] pipeline_status: {msg}");
-                msg
-            })?;
+    // warn log rather than failing the whole RPC. Scoped to the `wiki/`
+    // sub-directory so the tile lives up to its "Wiki size" label — the
+    // sibling `raw/` / `email/` / `chat/` / `document/` staging directories
+    // hold pre-canonicalised content and should not roll into the figure
+    // surfaced to the user (#1856 CodeRabbit feedback).
+    let wiki_root = config.memory_tree_content_root().join("wiki");
+    let wiki_size_bytes = tokio::task::spawn_blocking(move || compute_dir_size_bytes(&wiki_root))
+        .await
+        .map_err(|e| {
+            let msg = format!("pipeline_status size-walk join error: {e}");
+            log::warn!("[memory-tree][rpc] pipeline_status: {msg}");
+            msg
+        })?;
 
     let is_paused = config.scheduler_gate.mode == SchedulerGateMode::Off;
     let is_syncing = pipeline_jobs.running > 0;
@@ -496,9 +504,16 @@ fn compute_dir_size_bytes(root: &std::path::Path) -> u64 {
             }
             Ok(_) => {}
             Err(err) => {
+                // Both `err.path()` and `walkdir::Error`'s `Display` impl
+                // embed the absolute on-disk path (which lives under the
+                // user's home directory), so we redact: log only whether a
+                // path was attached and the underlying `io::ErrorKind`.
+                // That's enough for diagnosis while keeping the user's
+                // workspace layout out of the log file.
                 log::warn!(
-                    "[memory-tree][rpc] pipeline_status: dir walk error at {:?}: {err}",
-                    err.path()
+                    "[memory-tree][rpc] pipeline_status: dir walk error has_path={} kind={:?}",
+                    err.path().is_some(),
+                    err.io_error().map(|e| e.kind())
                 );
             }
         }
