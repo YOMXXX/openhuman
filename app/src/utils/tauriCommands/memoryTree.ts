@@ -15,6 +15,8 @@
  * Logging convention: `[memory-tree-rpc]` prefix for grep-friendly tracing
  * per the project debug-logging rule.
  */
+import { invoke } from '@tauri-apps/api/core';
+
 import { callCoreRpc } from '../../services/coreRpcClient';
 
 // ── Public types — match the memory_tree RPC contract ────────────────────
@@ -736,12 +738,20 @@ export interface MemoryTreePipelineStatus {
  * poll at ~1.5s intervals while the panel is mounted.
  *
  * Backed by `openhuman.memory_tree_pipeline_status` (#1856 Part 1).
+ *
+ * Routes through `invoke('core_rpc_relay', ...)` rather than `callCoreRpc`:
+ * the status panel mounts during boot and polls before the realtime socket
+ * has connected, so the Tauri IPC relay avoids the raw-`fetch()` CORS
+ * preflight + early socket lookups that `callCoreRpc` falls through to.
+ * See `.claude/memory.md` ("Service RPC calls must use Tauri IPC") and
+ * AGENTS.md for the project-wide rule.
  */
 export async function memoryTreePipelineStatus(): Promise<MemoryTreePipelineStatus> {
   console.debug('[memory-tree-rpc] memoryTreePipelineStatus: entry');
-  const resp = await callCoreRpc<
-    MemoryTreePipelineStatus | ResultEnvelope<MemoryTreePipelineStatus>
-  >({ method: 'openhuman.memory_tree_pipeline_status' });
+  const resp = await invoke<MemoryTreePipelineStatus | ResultEnvelope<MemoryTreePipelineStatus>>(
+    'core_rpc_relay',
+    { request: { method: 'openhuman.memory_tree_pipeline_status', params: {} } }
+  );
   const out = unwrapResult(resp);
   console.debug(
     '[memory-tree-rpc] memoryTreePipelineStatus: exit status=%s total=%d syncing=%s paused=%s',
@@ -777,14 +787,21 @@ export interface MemoryTreeSetEnabledResponse {
  * Backed by `openhuman.memory_tree_set_enabled` (#1856 Part 1). The 20-min
  * Composio fetch loop is *not* paused by this toggle yet — that lands in
  * #1856 Part 2.
+ *
+ * Routes through `invoke('core_rpc_relay', ...)` for the same reason as
+ * `memoryTreePipelineStatus`: the toggle lives next to the status panel
+ * which mounts before the realtime socket connects, so the Tauri IPC
+ * relay path is the only one guaranteed to be ready.
  */
 export async function memoryTreeSetEnabled(
   enabled: boolean
 ): Promise<MemoryTreeSetEnabledResponse> {
   console.debug('[memory-tree-rpc] memoryTreeSetEnabled: entry enabled=%s', enabled);
-  const resp = await callCoreRpc<
+  const resp = await invoke<
     MemoryTreeSetEnabledResponse | ResultEnvelope<MemoryTreeSetEnabledResponse>
-  >({ method: 'openhuman.memory_tree_set_enabled', params: { enabled } });
+  >('core_rpc_relay', {
+    request: { method: 'openhuman.memory_tree_set_enabled', params: { enabled } },
+  });
   const out = unwrapResult(resp);
   console.debug(
     '[memory-tree-rpc] memoryTreeSetEnabled: exit enabled=%s changed=%s mode=%s',
