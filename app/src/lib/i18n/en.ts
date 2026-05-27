@@ -291,6 +291,17 @@ const en: TranslationMap = {
   'memoryTree.status.fetchError': "Couldn't fetch Memory Tree status",
   'memoryTree.status.retry': 'Retry',
   'memoryTree.status.toggleFailed': "Couldn't toggle auto-sync",
+  // Relative-time buckets surfaced by the last-sync tile. `{count}` is
+  // replaced client-side at the call site (the runtime `t()` does not
+  // interpolate — see I18nContext.tsx).
+  'memoryTree.status.justNow': 'just now',
+  'memoryTree.status.secondsAgo': '{count}s ago',
+  'memoryTree.status.minuteAgo': '1 min ago',
+  'memoryTree.status.minutesAgo': '{count} min ago',
+  'memoryTree.status.hourAgo': '1 hr ago',
+  'memoryTree.status.hoursAgo': '{count} hr ago',
+  'memoryTree.status.dayAgo': '1 day ago',
+  'memoryTree.status.daysAgo': '{count} days ago',
 
   // Notifications / Alerts
   'alerts.title': 'Alerts',

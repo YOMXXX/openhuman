@@ -29,6 +29,9 @@ import {
   memoryTreeSetEnabled,
 } from '../../utils/tauriCommands';
 
+/** Translator function shape exposed by `useT()`. */
+type TFn = (key: string, fallback?: string) => string;
+
 /**
  * Adaptive polling cadence — match the existing memory ingestion
  * panel so the two surfaces feel like one.
@@ -107,22 +110,33 @@ interface MemoryTreeStatusPanelProps {
  * Returns the localized `Never` placeholder when `ms` is 0/falsy.
  *
  * Intentionally light — no dayjs dependency, no plural rules. Buckets
- * (just-now / minutes / hours / days) are enough for the status tile;
- * the precise timestamp is one level deeper in the workspace UI.
+ * (just-now / seconds / minutes / hours / days) are enough for the status
+ * tile; the precise timestamp is one level deeper in the workspace UI.
+ *
+ * Strings flow through `t()` from `useT()` so the panel localizes
+ * cleanly. `{count}` placeholders are substituted client-side because
+ * `t()` does not interpolate (see `I18nContext.tsx`).
  */
-function formatRelativeMs(ms: number, neverLabel: string): string {
+function formatRelativeMs(ms: number, t: TFn, neverLabel: string): string {
   if (!ms || ms <= 0) return neverLabel;
   const diffMs = Date.now() - ms;
   if (diffMs < 0) return neverLabel; // clock skew safety
   const sec = Math.floor(diffMs / 1000);
-  if (sec < 30) return 'just now';
-  if (sec < 60) return `${sec}s ago`;
+  if (sec < 30) return t('memoryTree.status.justNow');
+  if (sec < 60) return t('memoryTree.status.secondsAgo').replace('{count}', String(sec));
   const min = Math.floor(sec / 60);
-  if (min < 60) return `${min} min ago`;
+  if (min < 60) {
+    if (min === 1) return t('memoryTree.status.minuteAgo');
+    return t('memoryTree.status.minutesAgo').replace('{count}', String(min));
+  }
   const hr = Math.floor(min / 60);
-  if (hr < 24) return `${hr} hr ago`;
+  if (hr < 24) {
+    if (hr === 1) return t('memoryTree.status.hourAgo');
+    return t('memoryTree.status.hoursAgo').replace('{count}', String(hr));
+  }
   const day = Math.floor(hr / 24);
-  return `${day} day${day === 1 ? '' : 's'} ago`;
+  if (day === 1) return t('memoryTree.status.dayAgo');
+  return t('memoryTree.status.daysAgo').replace('{count}', String(day));
 }
 
 /**
@@ -271,7 +285,7 @@ export function MemoryTreeStatusPanel({ onToast }: MemoryTreeStatusPanelProps) {
             <div className={skeletonClass} />
           ) : (
             <div className={valueClass} data-testid="memory-tree-last-sync">
-              {formatRelativeMs(status.last_sync_ms, t('memoryTree.status.never'))}
+              {formatRelativeMs(status.last_sync_ms, t, t('memoryTree.status.never'))}
             </div>
           )}
         </div>
