@@ -66,10 +66,10 @@ pub async fn preview_workspace_text(path: String) -> Result<WorkspaceTextPreview
 pub async fn resolve_workspace_absolute_path(path: String) -> Result<String, String> {
     let workspace = active_workspace_root().await?;
     let target = resolve_workspace_path(&workspace, &path)?;
+    let workspace_label = workspace_path_label(&workspace, &target);
     log::debug!(
-        "[workspace-paths] resolve_workspace_absolute_path: {} -> {}",
-        path,
-        target.display()
+        "[workspace-paths] resolve_workspace_absolute_path: {}",
+        workspace_label
     );
     Ok(target.to_string_lossy().into_owned())
 }
