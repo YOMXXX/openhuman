@@ -146,12 +146,17 @@ mod tests {
 
         let source = tmp.path().join("hermes-src");
         std::fs::create_dir_all(&source).unwrap();
+        // Cover the full Hermes file mapping (MEMORY.md / USER.md / SOUL.md)
+        // so the apply path is exercised for every category — including the
+        // `Custom("persona")` SOUL.md branch which @graycyrus called out as
+        // untested in the original review on this PR.
         std::fs::write(source.join("MEMORY.md"), "# Agent memory\nremember this").unwrap();
         std::fs::write(
             source.join("USER.md"),
             "# User profile\nprefers concise answers",
         )
         .unwrap();
+        std::fs::write(source.join("SOUL.md"), "# Persona\ncalm and curious").unwrap();
 
         let outcome = migrate_hermes(&config, Some(source), false)
             .await
@@ -159,11 +164,11 @@ mod tests {
         let report = outcome.value;
         assert!(!report.dry_run);
         assert!(
-            report.stats.imported >= 2,
-            "apply must import at least 2 entries; stats={:?}",
+            report.stats.imported >= 3,
+            "apply must import all 3 entries; stats={:?}",
             report.stats
         );
-        assert_eq!(report.stats.from_markdown, 2);
+        assert_eq!(report.stats.from_markdown, 3);
     }
 
     #[tokio::test]
