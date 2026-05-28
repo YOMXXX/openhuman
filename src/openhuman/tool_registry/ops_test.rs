@@ -64,7 +64,9 @@ fn diagnostics_reports_inventory_and_policy_surfaces() {
 
 #[tokio::test]
 async fn diagnostics_loads_active_capability_provider_config() {
-    let _lock = crate::openhuman::config::TEST_ENV_LOCK.lock().unwrap();
+    let _lock = crate::openhuman::config::TEST_ENV_LOCK
+        .lock()
+        .unwrap_or_else(|e| e.into_inner());
     let tmp = tempfile::tempdir().expect("tempdir");
     let _env = EnvRestore::set_path("OPENHUMAN_WORKSPACE", tmp.path());
     std::fs::write(
@@ -97,24 +99,26 @@ enabled = true
 
 #[test]
 fn diagnostics_for_config_reports_capability_provider_summary() {
-    let mut config = Config::default();
-    config.capability_providers = vec![
-        capability_provider(
-            "trusted-enabled",
-            CapabilityProviderTrustState::Trusted,
-            true,
-        ),
-        capability_provider(
-            "trusted-disabled",
-            CapabilityProviderTrustState::Trusted,
-            false,
-        ),
-        capability_provider(
-            "untrusted-enabled",
-            CapabilityProviderTrustState::Untrusted,
-            true,
-        ),
-    ];
+    let config = Config {
+        capability_providers: vec![
+            capability_provider(
+                "trusted-enabled",
+                CapabilityProviderTrustState::Trusted,
+                true,
+            ),
+            capability_provider(
+                "trusted-disabled",
+                CapabilityProviderTrustState::Trusted,
+                false,
+            ),
+            capability_provider(
+                "untrusted-enabled",
+                CapabilityProviderTrustState::Untrusted,
+                true,
+            ),
+        ],
+        ..Config::default()
+    };
 
     let outcome = diagnostics_for_config(&config);
 
@@ -134,11 +138,13 @@ fn diagnostics_for_config_reports_capability_provider_summary() {
 
 #[test]
 fn diagnostics_for_config_reports_capability_provider_errors() {
-    let mut config = Config::default();
-    config.capability_providers = vec![
-        capability_provider("Acme Tools", CapabilityProviderTrustState::Trusted, true),
-        capability_provider("acme-tools", CapabilityProviderTrustState::Trusted, true),
-    ];
+    let config = Config {
+        capability_providers: vec![
+            capability_provider("Acme Tools", CapabilityProviderTrustState::Trusted, true),
+            capability_provider("acme-tools", CapabilityProviderTrustState::Trusted, true),
+        ],
+        ..Config::default()
+    };
 
     let outcome = diagnostics_for_config(&config);
 

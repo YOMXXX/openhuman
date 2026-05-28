@@ -295,9 +295,10 @@ mod tests {
     use super::CapabilityProviderRegistry;
 
     fn config_with(providers: Vec<CapabilityProviderConfig>) -> Config {
-        let mut config = Config::default();
-        config.capability_providers = providers;
-        config
+        Config {
+            capability_providers: providers,
+            ..Config::default()
+        }
     }
 
     fn provider(

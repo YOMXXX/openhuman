@@ -110,10 +110,9 @@ fn handle_diagnostics(params: Map<String, Value>) -> ControllerFuture {
             "[tool_registry] rpc diagnostics requested param_count={}",
             params.len()
         );
-        let result = match crate::openhuman::tool_registry::ops::diagnostics().await {
-            Ok(outcome) => to_json(outcome),
-            Err(err) => Err(err),
-        };
+        let result = crate::openhuman::tool_registry::ops::diagnostics()
+            .await
+            .and_then(to_json);
         log::debug!(
             "[tool_registry] rpc diagnostics completed success={}",
             result.is_ok()
