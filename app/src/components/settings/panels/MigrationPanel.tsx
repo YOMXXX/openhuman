@@ -189,7 +189,7 @@ const MigrationPanel = ({ embedded = false }: MigrationPanelProps = {}) => {
               type="button"
               data-testid="migration-preview-button"
               onClick={runPreview}
-              disabled={isPreviewing}
+              disabled={isPreviewing || isApplying}
               className="px-3 py-1.5 text-xs rounded-md bg-primary-600 hover:bg-primary-700 disabled:opacity-60 text-white">
               {isPreviewing ? t('migration.previewRunning') : t('migration.previewAction')}
             </button>

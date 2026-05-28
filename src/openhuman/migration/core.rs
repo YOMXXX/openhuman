@@ -570,6 +570,13 @@ mod tests {
     #[test]
     fn resolve_hermes_workspace_defaults_to_home_dot_hermes() {
         let result = resolve_hermes_workspace(None).unwrap();
+        #[cfg(windows)]
+        {
+            if let Some(local_app_data) = std::env::var_os("LOCALAPPDATA") {
+                assert_eq!(result, PathBuf::from(local_app_data).join("hermes"));
+                return;
+            }
+        }
         let home = directories::UserDirs::new().unwrap();
         assert_eq!(result, home.home_dir().join(".hermes"));
     }
