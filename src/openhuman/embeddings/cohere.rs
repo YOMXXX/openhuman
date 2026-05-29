@@ -92,8 +92,6 @@ impl EmbeddingProvider for CohereEmbedding {
             return Ok(Vec::new());
         }
 
-        super::rate_limit::acquire_embedding_slot(&self.base_url).await;
-
         let url = format!("{}/v2/embed", self.base_url);
 
         tracing::debug!(
@@ -111,6 +109,15 @@ impl EmbeddingProvider for CohereEmbedding {
         // Retry loop: handles 429 Too Many Requests and 503 Service Unavailable
         // with Retry-After–aware exponential backoff.
         for attempt in 0..=MAX_429_RETRIES {
+            // Proactively gate every outbound attempt (initial + retries) against
+            // the per-endpoint rate budget. The chokepoint must sit inside the
+            // loop: a single pre-loop acquire would let retried 429/503 attempts
+            // bypass token consumption and let concurrent callers blow past the
+            // cap, ironically triggering more 429s. Token consumption tracks the
+            // number of HTTP attempts (1 + retries actually executed). Loopback
+            // endpoints are exempt (see `rate_limit`).
+            super::rate_limit::acquire_embedding_slot(&self.base_url).await;
+
             let resp = self
                 .http_client()
                 .post(&url)

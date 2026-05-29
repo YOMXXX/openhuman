@@ -103,14 +103,6 @@ impl EmbeddingProvider for OpenAiEmbedding {
             return Ok(Vec::new());
         }
 
-        // Proactively gate the outbound request against the per-endpoint rate
-        // budget so cloud backends (OpenHuman/Voyage, OpenAI, custom remote
-        // endpoints) stay under their account quota instead of tripping 429s.
-        // This is the single chokepoint every cloud embed funnels through —
-        // the `cloud` provider delegates here, and `openai`/`custom:` use it
-        // directly. Loopback endpoints are exempt (see `rate_limit`).
-        super::rate_limit::acquire_embedding_slot(&self.base_url).await;
-
         let url = self.embeddings_url();
 
         tracing::debug!(
@@ -137,6 +129,17 @@ impl EmbeddingProvider for OpenAiEmbedding {
             if !self.api_key.is_empty() {
                 req = req.header("Authorization", format!("Bearer {}", self.api_key));
             }
+
+            // Proactively gate every outbound attempt (initial + retries) against
+            // the per-endpoint rate budget so cloud backends (OpenHuman/Voyage,
+            // OpenAI, custom remote endpoints) stay under their account quota
+            // instead of tripping 429s. The chokepoint must sit inside the loop:
+            // a single pre-loop acquire would let retried 429/503 attempts bypass
+            // token consumption and let concurrent callers blow past the cap,
+            // ironically triggering more 429s. Token consumption tracks the number
+            // of HTTP attempts (1 + retries actually executed). Loopback endpoints
+            // are exempt (see `rate_limit`).
+            super::rate_limit::acquire_embedding_slot(&self.base_url).await;
 
             let resp = req.send().await?;
 
