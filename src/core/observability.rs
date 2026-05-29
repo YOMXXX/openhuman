@@ -2020,8 +2020,7 @@ mod tests {
         );
 
         // Cohere canonical shape (cohere.rs emit site).
-        let cohere_msg =
-            "Cohere embed API error (429 Too Many Requests): rate limit exceeded.";
+        let cohere_msg = "Cohere embed API error (429 Too Many Requests): rate limit exceeded.";
         assert_eq!(
             expected_error_kind(cohere_msg),
             Some(ExpectedErrorKind::TransientUpstreamHttp),
@@ -2029,7 +2028,8 @@ mod tests {
         );
 
         // After-cap bail shape from the retry loop (openai.rs).
-        let cap_msg = "Embedding API error (429 Too Many Requests): rate limit exceeded after 3 retries";
+        let cap_msg =
+            "Embedding API error (429 Too Many Requests): rate limit exceeded after 3 retries";
         assert_eq!(
             expected_error_kind(cap_msg),
             Some(ExpectedErrorKind::TransientUpstreamHttp),
@@ -2037,7 +2037,8 @@ mod tests {
         );
 
         // After-cap bail shape from the retry loop (cohere.rs).
-        let cohere_cap_msg = "Cohere embed API error (429 Too Many Requests): rate limit exceeded after 3 retries";
+        let cohere_cap_msg =
+            "Cohere embed API error (429 Too Many Requests): rate limit exceeded after 3 retries";
         assert_eq!(
             expected_error_kind(cohere_cap_msg),
             Some(ExpectedErrorKind::TransientUpstreamHttp),

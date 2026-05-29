@@ -160,8 +160,7 @@ impl EmbeddingProvider for OpenAiEmbedding {
                     status.as_u16()
                 );
 
-                let delay_ms =
-                    backoff_ms_for_attempt(attempt, retry_after_val.as_deref());
+                let delay_ms = backoff_ms_for_attempt(attempt, retry_after_val.as_deref());
 
                 tracing::debug!(
                     target: "openai::embed",
@@ -218,9 +217,7 @@ impl EmbeddingProvider for OpenAiEmbedding {
                     .get("embedding")
                     .and_then(|e| e.as_array())
                     .ok_or_else(|| {
-                        anyhow::anyhow!(
-                            "Invalid embedding item at index {i}: missing 'embedding'"
-                        )
+                        anyhow::anyhow!("Invalid embedding item at index {i}: missing 'embedding'")
                     })?;
 
                 let mut vec = Vec::with_capacity(embedding.len());

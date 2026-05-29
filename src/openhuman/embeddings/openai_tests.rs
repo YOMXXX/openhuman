@@ -598,9 +598,7 @@ async fn embed_429_without_retry_after_uses_exponential_backoff() {
                     axum::response::Response::builder()
                         .status(StatusCode::OK)
                         .header("Content-Type", "application/json")
-                        .body(axum::body::Body::from(
-                            r#"{"data":[{"embedding":[9.9]}]}"#,
-                        ))
+                        .body(axum::body::Body::from(r#"{"data":[{"embedding":[9.9]}]}"#))
                         .unwrap()
                 }
             }

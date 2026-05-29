@@ -140,8 +140,7 @@ impl EmbeddingProvider for CohereEmbedding {
                     status.as_u16()
                 );
 
-                let delay_ms =
-                    backoff_ms_for_attempt(attempt, retry_after_val.as_deref());
+                let delay_ms = backoff_ms_for_attempt(attempt, retry_after_val.as_deref());
 
                 tracing::debug!(
                     target: "embeddings.cohere",
@@ -298,8 +297,7 @@ mod tests {
         );
 
         let base_url = start_mock(app).await;
-        let p = CohereEmbedding::new("test-key", "embed-english-v3.0", 2)
-            .with_base_url(&base_url);
+        let p = CohereEmbedding::new("test-key", "embed-english-v3.0", 2).with_base_url(&base_url);
 
         let result = p.embed(&["hello"]).await.unwrap();
         assert_eq!(result.len(), 1);
@@ -330,8 +328,7 @@ mod tests {
         );
 
         let base_url = start_mock(app).await;
-        let p = CohereEmbedding::new("test-key", "embed-english-v3.0", 2)
-            .with_base_url(&base_url);
+        let p = CohereEmbedding::new("test-key", "embed-english-v3.0", 2).with_base_url(&base_url);
 
         let err = p.embed(&["hello"]).await.unwrap_err();
         let msg = err.to_string();
