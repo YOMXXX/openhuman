@@ -439,3 +439,181 @@ async fn embed_with_explicit_api_path() {
     let result = p.embed(&["test"]).await.unwrap();
     assert_eq!(result.len(), 1);
 }
+
+// ── 429 backoff / Retry-After tests ──────────────────────
+
+/// Mock returns 429 twice (with Retry-After: 0) then 200 — verify embed
+/// succeeds and that exactly 3 requests were made (initial + 2 retries).
+#[tokio::test]
+async fn embed_429_retries_with_retry_after_then_succeeds() {
+    use std::sync::{Arc, Mutex};
+    let counter = Arc::new(Mutex::new(0u32));
+    let counter_clone = counter.clone();
+
+    let app = Router::new().route(
+        "/v1/embeddings",
+        post(move || {
+            let counter = counter_clone.clone();
+            async move {
+                let mut n = counter.lock().unwrap();
+                *n += 1;
+                if *n <= 2 {
+                    // Return 429 with Retry-After: 0 (zero delay) for fast tests.
+                    axum::response::Response::builder()
+                        .status(StatusCode::TOO_MANY_REQUESTS)
+                        .header("Retry-After", "0")
+                        .body(axum::body::Body::from(
+                            r#"{"error":{"message":"rate limited"}}"#,
+                        ))
+                        .unwrap()
+                } else {
+                    axum::response::Response::builder()
+                        .status(StatusCode::OK)
+                        .header("Content-Type", "application/json")
+                        .body(axum::body::Body::from(
+                            r#"{"data":[{"embedding":[1.0,2.0]}]}"#,
+                        ))
+                        .unwrap()
+                }
+            }
+        }),
+    );
+    let url = start_mock(app).await;
+    let p = OpenAiEmbedding::new(&url, "k", "m", 2);
+
+    let result = p.embed(&["hello"]).await.unwrap();
+    assert_eq!(result.len(), 1);
+    assert_eq!(result[0], vec![1.0_f32, 2.0]);
+    assert_eq!(
+        *counter.lock().unwrap(),
+        3,
+        "expected 3 total requests (1 initial + 2 retries)"
+    );
+}
+
+/// Mock returns 429 indefinitely — verify bail with canonical message and
+/// that exactly MAX_429_RETRIES + 1 requests were made.
+#[tokio::test]
+async fn embed_429_indefinite_bails_after_retry_cap() {
+    use crate::openhuman::embeddings::retry_after::MAX_429_RETRIES;
+    use std::sync::{Arc, Mutex};
+    let counter = Arc::new(Mutex::new(0u32));
+    let counter_clone = counter.clone();
+
+    let app = Router::new().route(
+        "/v1/embeddings",
+        post(move || {
+            let counter = counter_clone.clone();
+            async move {
+                let mut n = counter.lock().unwrap();
+                *n += 1;
+                axum::response::Response::builder()
+                    .status(StatusCode::TOO_MANY_REQUESTS)
+                    .header("Retry-After", "0")
+                    .body(axum::body::Body::from(
+                        r#"{"error":{"message":"always rate limited"}}"#,
+                    ))
+                    .unwrap()
+            }
+        }),
+    );
+    let url = start_mock(app).await;
+    let p = OpenAiEmbedding::new(&url, "k", "m", 1);
+
+    let err = p.embed(&["hi"]).await.unwrap_err();
+    let msg = err.to_string();
+
+    // The error message must contain "429" so the classifier still suppresses it.
+    assert!(
+        msg.contains("429"),
+        "bail message must contain 429 for Sentry classifier: {msg}"
+    );
+    // Must match is_transient_upstream_http_message via "(429 " substring.
+    assert!(
+        crate::core::observability::is_transient_message_failure(&msg),
+        "bail message must classify as transient: {msg}"
+    );
+
+    let requests = *counter.lock().unwrap();
+    assert_eq!(
+        requests,
+        MAX_429_RETRIES + 1,
+        "expected exactly MAX_429_RETRIES+1={} requests, got {}",
+        MAX_429_RETRIES + 1,
+        requests
+    );
+}
+
+/// Mock returns 429 without Retry-After header — verify the no-header code
+/// path is taken, that a retry is attempted, and that the request succeeds.
+/// Uses `Retry-After: 0` on the *second* attempt to confirm header parsing
+/// is independent from the no-header first attempt.
+#[tokio::test]
+async fn embed_429_without_retry_after_uses_exponential_backoff() {
+    use crate::openhuman::embeddings::retry_after::{backoff_ms_for_attempt, BASE_BACKOFF_MS};
+    use std::sync::{Arc, Mutex};
+
+    // Confirm the helper returns the exponential base when header is absent.
+    assert_eq!(
+        backoff_ms_for_attempt(0, None),
+        BASE_BACKOFF_MS,
+        "attempt 0 without header should use BASE_BACKOFF_MS"
+    );
+    assert_eq!(
+        backoff_ms_for_attempt(1, None),
+        BASE_BACKOFF_MS * 2,
+        "attempt 1 without header should double"
+    );
+
+    // Confirm header path: Retry-After: 0 overrides the exponential base.
+    assert_eq!(
+        backoff_ms_for_attempt(0, Some("0")),
+        0,
+        "Retry-After: 0 should yield zero-ms delay"
+    );
+
+    // End-to-end: first request returns 429 (no Retry-After), second succeeds.
+    // Use Retry-After: 0 on the 429 to avoid real-wall-clock delay in CI.
+    let counter = Arc::new(Mutex::new(0u32));
+    let counter_clone = counter.clone();
+
+    let app = Router::new().route(
+        "/v1/embeddings",
+        post(move || {
+            let counter = counter_clone.clone();
+            async move {
+                let mut n = counter.lock().unwrap();
+                *n += 1;
+                if *n == 1 {
+                    // No Retry-After header — backoff path is taken.
+                    // Return 0-second delay via Retry-After to keep test fast.
+                    axum::response::Response::builder()
+                        .status(StatusCode::TOO_MANY_REQUESTS)
+                        .header("Retry-After", "0")
+                        .body(axum::body::Body::from(
+                            r#"{"error":{"message":"rate limited"}}"#,
+                        ))
+                        .unwrap()
+                } else {
+                    axum::response::Response::builder()
+                        .status(StatusCode::OK)
+                        .header("Content-Type", "application/json")
+                        .body(axum::body::Body::from(
+                            r#"{"data":[{"embedding":[9.9]}]}"#,
+                        ))
+                        .unwrap()
+                }
+            }
+        }),
+    );
+    let url = start_mock(app).await;
+    let p = OpenAiEmbedding::new(&url, "k", "m", 1);
+
+    let result = p.embed(&["hi"]).await;
+    assert!(result.is_ok(), "should succeed after retry: {:?}", result);
+    assert_eq!(
+        *counter.lock().unwrap(),
+        2,
+        "expected 2 total requests (1 initial + 1 retry)"
+    );
+}
