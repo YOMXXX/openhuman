@@ -37,7 +37,7 @@ impl LocalAiService {
         }
         let system = "You summarize internal assistant context. Keep concise bullet points.";
         let prompt = format!(
-            "Summarize this text in concise bullet points. Preserve decisions and commitments.\\n\\n{}",
+            "Summarize this text in concise bullet points. Preserve decisions and commitments.\n\n{}",
             text
         );
         self.inference(config, system, &prompt, max_tokens.or(Some(128)), true)
@@ -56,7 +56,7 @@ impl LocalAiService {
         }
         let system = "You summarize internal assistant context. Keep concise bullet points.";
         let prompt = format!(
-            "Summarize this text in concise bullet points. Preserve decisions and commitments.\\n\\n{}",
+            "Summarize this text in concise bullet points. Preserve decisions and commitments.\n\n{}",
             text
         );
         self.inference_interactive(config, system, &prompt, max_tokens.or(Some(128)), true)

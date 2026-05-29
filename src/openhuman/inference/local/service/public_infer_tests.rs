@@ -360,7 +360,16 @@ async fn summarize_interactive_does_not_block_on_held_permit() {
 
     let app = Router::new().route(
         "/api/generate",
-        post(|Json(_body): Json<serde_json::Value>| async move {
+        post(|Json(body): Json<serde_json::Value>| async move {
+            let prompt = body["prompt"].as_str().unwrap_or_default();
+            assert!(
+                prompt.contains("commitments.\n\ntext to summarize"),
+                "summary prompt should use real newlines, got: {prompt:?}"
+            );
+            assert!(
+                !prompt.contains(r"commitments.\n\ntext to summarize"),
+                "summary prompt must not contain literal backslash-n separators"
+            );
             Json(json!({
                 "model": "test",
                 "response": "summary from mock",
