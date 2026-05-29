@@ -92,7 +92,7 @@ pub(super) async fn ws_loop(
         let token = match token_provider() {
             Ok(t) if !t.trim().is_empty() => t,
             Ok(_) => {
-                log::error!("[socket] ws_loop: token provider returned empty token — stopping");
+                log::warn!("[socket] ws_loop: token provider returned empty token — stopping");
                 *shared.error.write() = Some("session expired — please sign in again".to_string());
                 *shared.status.write() = ConnectionStatus::Disconnected;
                 *shared.socket_id.write() = None;
