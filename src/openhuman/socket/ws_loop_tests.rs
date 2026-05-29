@@ -1115,3 +1115,61 @@ fn sio_connect_error_invalid_token_classifies_correctly() {
     assert!(!is_invalid_token_error("EIO OPEN: timeout"));
     assert!(!is_invalid_token_error("WebSocket connect: connection refused"));
 }
+
+// ── decide_after_invalid_token ─────────────────────────────────────────────
+
+/// Provider returns a genuinely fresh token → loop should retry immediately.
+#[test]
+fn decide_after_invalid_token_fresh_token_returns_retry() {
+    let provider: TokenProvider = Arc::new(|| Ok("fresh-token".to_string()));
+    match decide_after_invalid_token("stale-token", &provider) {
+        InvalidTokenAction::RetryImmediately { fresh_len } => {
+            assert_eq!(fresh_len, "fresh-token".len());
+        }
+        InvalidTokenAction::Escalate { reason } => {
+            panic!("expected RetryImmediately, got Escalate({reason})");
+        }
+    }
+}
+
+/// Provider returns the same token → session is definitively expired; escalate.
+#[test]
+fn decide_after_invalid_token_same_token_escalates() {
+    let provider: TokenProvider = Arc::new(|| Ok("same-token".to_string()));
+    match decide_after_invalid_token("same-token", &provider) {
+        InvalidTokenAction::Escalate { .. } => {}
+        InvalidTokenAction::RetryImmediately { .. } => {
+            panic!("expected Escalate when provider returns the same token");
+        }
+    }
+}
+
+/// Provider returns an error → escalate with the provider error as reason.
+#[test]
+fn decide_after_invalid_token_provider_error_escalates() {
+    let provider: TokenProvider =
+        Arc::new(|| Err("no session token stored — user must log in first".to_string()));
+    match decide_after_invalid_token("any-token", &provider) {
+        InvalidTokenAction::Escalate { reason } => {
+            assert!(
+                reason.contains("provider error"),
+                "expected 'provider error' in escalation reason, got: {reason}"
+            );
+        }
+        InvalidTokenAction::RetryImmediately { .. } => {
+            panic!("expected Escalate when provider errors");
+        }
+    }
+}
+
+/// Provider returns an empty string → treat as no session; escalate.
+#[test]
+fn decide_after_invalid_token_empty_token_escalates() {
+    let provider: TokenProvider = Arc::new(|| Ok(String::new()));
+    match decide_after_invalid_token("prev-token", &provider) {
+        InvalidTokenAction::Escalate { .. } => {}
+        InvalidTokenAction::RetryImmediately { .. } => {
+            panic!("expected Escalate when provider returns empty token");
+        }
+    }
+}

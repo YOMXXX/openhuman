@@ -159,41 +159,36 @@ pub(super) async fn ws_loop(
                     "[socket] Invalid token on attempt — checking for fresh token (current_len={})",
                     token.len()
                 );
-                let fresh_result = token_provider();
-                let should_retry_fresh = fresh_result
-                    .as_ref()
-                    .ok()
-                    .map(|t| t != &token && !t.trim().is_empty())
-                    .unwrap_or(false);
-
-                if should_retry_fresh {
-                    // We have a genuinely different token — try once
-                    // immediately (no backoff sleep). If this also fails we
-                    // will go through the normal escalation path on the next
-                    // loop iteration.
-                    log::info!(
-                        "[socket] Fresh token available (len={}), retrying immediately",
-                        fresh_result.as_ref().unwrap().len()
-                    );
-                    // Don't increment consecutive_failures for a doomed
-                    // attempt we couldn't have avoided — the token we used
-                    // was already stale at fetch time.
-                    continue;
+                match decide_after_invalid_token(&token, &token_provider) {
+                    InvalidTokenAction::RetryImmediately { fresh_len } => {
+                        // We have a genuinely different token — try once
+                        // immediately (no backoff sleep). If this also fails we
+                        // will go through the normal escalation path on the next
+                        // loop iteration.
+                        log::info!(
+                            "[socket] Fresh token available (len={fresh_len}), retrying immediately"
+                        );
+                        // Don't increment consecutive_failures for an attempt we
+                        // couldn't have avoided — the token we used was already
+                        // stale at fetch time.
+                        continue;
+                    }
+                    InvalidTokenAction::Escalate { reason } => {
+                        // No fresh token — the session is definitively expired.
+                        // Escalate immediately instead of wasting more attempts
+                        // on what is provably a dead token. This is the core fix
+                        // for TAURI-RUST-9C (#2892).
+                        log::warn!(
+                            "[socket] Session expired ({reason}) — stopping reconnect loop"
+                        );
+                        *shared.error.write() =
+                            Some("session expired — please sign in again".to_string());
+                        *shared.status.write() = ConnectionStatus::Disconnected;
+                        *shared.socket_id.write() = None;
+                        emit_state_change(&shared);
+                        return;
+                    }
                 }
-
-                // No fresh token — the session is definitively expired.
-                // Escalate immediately (break) instead of wasting 4 more
-                // attempts on what is provably a dead token. This is the
-                // core fix for TAURI-RUST-9C (#2892).
-                log::warn!(
-                    "[socket] Session expired (no fresh token after Invalid token) — stopping reconnect loop"
-                );
-                *shared.error.write() =
-                    Some("session expired — please sign in again".to_string());
-                *shared.status.write() = ConnectionStatus::Disconnected;
-                *shared.socket_id.write() = None;
-                emit_state_change(&shared);
-                return;
             }
             ConnectionOutcome::Failed(reason) => {
                 consecutive_failures = consecutive_failures.saturating_add(1);
@@ -277,6 +272,53 @@ fn log_connection_failure(consecutive: u32, reason: &str) {
             FAIL_ESCALATE_THRESHOLD,
             reason
         );
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Invalid-token decision helper
+// ---------------------------------------------------------------------------
+
+/// Action the reconnect loop should take after receiving an "Invalid token"
+/// rejection from the server.
+enum InvalidTokenAction {
+    /// A genuinely different token is available — retry the connection
+    /// immediately (no backoff sleep). `fresh_len` is carried for logging.
+    RetryImmediately { fresh_len: usize },
+    /// No fresh token is available; the session is definitively expired.
+    /// `reason` is a short diagnostic string for the log line.
+    Escalate { reason: String },
+}
+
+/// Pure decision function: given the token that was just rejected and the
+/// provider that may have a fresher one, decide what the reconnect loop
+/// should do next.
+///
+/// Calls `provider()` exactly once. No socket I/O.
+///
+/// - Provider returns a **different, non-empty** token → `RetryImmediately`.
+/// - Provider returns the **same** token → `Escalate` (no point retrying).
+/// - Provider returns an **empty** token → `Escalate` (treat as no session).
+/// - Provider returns `Err` → `Escalate` with the provider error as reason.
+fn decide_after_invalid_token(
+    previous_token: &str,
+    provider: &TokenProvider,
+) -> InvalidTokenAction {
+    match provider() {
+        Ok(fresh) if !fresh.trim().is_empty() && fresh != previous_token => {
+            InvalidTokenAction::RetryImmediately {
+                fresh_len: fresh.len(),
+            }
+        }
+        Ok(same) if same == previous_token => InvalidTokenAction::Escalate {
+            reason: "token unchanged after provider re-fetch".to_string(),
+        },
+        Ok(_) => InvalidTokenAction::Escalate {
+            reason: "provider returned empty token".to_string(),
+        },
+        Err(e) => InvalidTokenAction::Escalate {
+            reason: format!("provider error: {e}"),
+        },
     }
 }
 
