@@ -197,9 +197,12 @@ impl ConversationStore {
     /// JSONL files to build the inverted index. This avoids blocking
     /// `append_message` / `get_messages` / `list_threads` during the
     /// potentially-long rebuild. JSONL files are append-only, so a
-    /// concurrent write during the rebuild simply means the index misses
-    /// that one message — it gets picked up via the warm-cache `insert`
-    /// path on the next `append_message` call.
+    /// concurrent write during the rebuild may mean the rebuilt index
+    /// misses that one message. It is *not* re-read later; subsequent
+    /// `append_message` calls only index their own (new) messages once
+    /// the cache is warm. The missed message therefore stays absent
+    /// until the cache is evicted and rebuilt — an accepted tradeoff
+    /// for issue #2849.
     pub fn search_cross_thread_messages(
         &self,
         query: &str,
