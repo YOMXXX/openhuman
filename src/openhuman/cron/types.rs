@@ -57,7 +57,7 @@ pub struct ActiveHours {
     pub end: String,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
 #[serde(tag = "kind", rename_all = "lowercase")]
 pub enum Schedule {
     Cron {
@@ -73,6 +73,59 @@ pub enum Schedule {
     Every {
         every_ms: u64,
     },
+}
+
+impl<'de> Deserialize<'de> for Schedule {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let value = serde_json::Value::deserialize(deserializer)?;
+
+        // Bare cron string: treat as Cron variant with defaults.
+        if let Some(expr) = value.as_str() {
+            return Ok(Schedule::Cron {
+                expr: expr.to_string(),
+                tz: None,
+                active_hours: None,
+            });
+        }
+
+        // Internally-tagged enum format: {"kind": "cron", "expr": "..."} etc.
+        #[derive(Deserialize)]
+        #[serde(tag = "kind", rename_all = "lowercase")]
+        enum ScheduleTagged {
+            Cron {
+                expr: String,
+                #[serde(default)]
+                tz: Option<String>,
+                #[serde(default)]
+                active_hours: Option<ActiveHours>,
+            },
+            At {
+                at: DateTime<Utc>,
+            },
+            Every {
+                every_ms: u64,
+            },
+        }
+
+        let tagged: ScheduleTagged =
+            serde_json::from_value(value).map_err(serde::de::Error::custom)?;
+        Ok(match tagged {
+            ScheduleTagged::Cron {
+                expr,
+                tz,
+                active_hours,
+            } => Schedule::Cron {
+                expr,
+                tz,
+                active_hours,
+            },
+            ScheduleTagged::At { at } => Schedule::At { at },
+            ScheduleTagged::Every { every_ms } => Schedule::Every { every_ms },
+        })
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -341,5 +394,42 @@ mod tests {
         };
         assert!(p.agent_id.is_some());
         assert!(p.agent_id.as_ref().unwrap().is_none());
+    }
+
+    // ── Schedule: bare cron string acceptance (#2866) ──────────────
+
+    #[test]
+    fn schedule_deserializes_bare_cron_string() {
+        let schedule: Schedule = serde_json::from_str(r#""0 9 * * 1""#).unwrap();
+        assert_eq!(
+            schedule,
+            Schedule::Cron {
+                expr: "0 9 * * 1".to_string(),
+                tz: None,
+                active_hours: None,
+            }
+        );
+    }
+
+    #[test]
+    fn schedule_deserializes_tagged_cron_object() {
+        let schedule: Schedule =
+            serde_json::from_str(r#"{"kind": "cron", "expr": "0 9 * * 1"}"#).unwrap();
+        assert_eq!(
+            schedule,
+            Schedule::Cron {
+                expr: "0 9 * * 1".to_string(),
+                tz: None,
+                active_hours: None,
+            }
+        );
+    }
+
+    #[test]
+    fn schedule_bare_string_roundtrip_serializes_as_tagged() {
+        let schedule: Schedule = serde_json::from_str(r#""*/5 * * * *""#).unwrap();
+        let json = serde_json::to_value(&schedule).unwrap();
+        assert_eq!(json["kind"], "cron");
+        assert_eq!(json["expr"], "*/5 * * * *");
     }
 }
