@@ -16,6 +16,7 @@ use crate::openhuman::util::utf8_safe_prefix_at_byte_boundary;
 
 use super::event_handlers::{handle_sio_event, parse_sio_event};
 use super::manager::{emit_state_change, SharedState};
+use super::token_provider::{is_invalid_token_error, TokenProvider};
 use super::types::{ConnectionOutcome, WsStream};
 
 /// Maximum HTTP redirect hops to follow during a single WebSocket connect attempt.
@@ -49,29 +50,25 @@ const MAX_REDIRECT_HOPS: u8 = 3;
 const FAIL_ESCALATE_THRESHOLD: u32 = 5;
 
 /// Background loop that manages the WebSocket connection and reconnection.
+///
+/// `token_provider` is called before **each** connection attempt, so a
+/// token that was refreshed or re-stored on disk (e.g. after the user
+/// re-logged-in while the loop was sleeping) is picked up automatically.
+///
+/// On a `"Socket.IO connect error: Invalid token"` rejection the loop
+/// performs one extra provider call to check whether a fresher token
+/// became available. If the token is unchanged (or the second attempt also
+/// fails with "Invalid token") the loop escalates immediately — it does
+/// **not** waste the remaining back-off attempts on a provably dead token.
+/// This is the fix for TAURI-RUST-9C (#2892).
 pub(super) async fn ws_loop(
     url: String,
-    token: String,
+    token_provider: TokenProvider,
     shared: Arc<SharedState>,
     mut emit_rx: mpsc::UnboundedReceiver<String>,
     mut shutdown_rx: watch::Receiver<bool>,
     internal_tx: mpsc::UnboundedSender<String>,
 ) {
-    // Defense in depth: `SocketManager::connect` is the primary guard and
-    // will reject an empty token before spawning this task. This check
-    // covers any future caller that invokes `ws_loop` directly (e.g. tests
-    // or internal plumbing bypassing the manager). Without it, every attempt
-    // would either 401 at the SIO CONNECT step or fail upstream at the
-    // gateway, producing the retry-storm Sentry noise this module is designed
-    // to suppress.
-    if token.trim().is_empty() {
-        log::error!("[socket] ws_loop: refusing to start — empty session token");
-        *shared.status.write() = ConnectionStatus::Disconnected;
-        *shared.socket_id.write() = None;
-        emit_state_change(&shared);
-        return;
-    }
-
     let mut backoff = Duration::from_millis(1000);
     let max_backoff = Duration::from_secs(30);
     let mut consecutive_failures: u32 = 0;
@@ -88,7 +85,36 @@ pub(super) async fn ws_loop(
             break;
         }
 
-        log::info!("[socket] Attempting connection...");
+        // Fetch the latest token before every attempt. If the provider
+        // returns an error (no token stored → user is logged out, profile
+        // corrupt), there is nothing useful to retry with — surface the error
+        // and exit cleanly rather than spamming the server.
+        let token = match token_provider() {
+            Ok(t) if !t.trim().is_empty() => t,
+            Ok(_) => {
+                log::error!("[socket] ws_loop: token provider returned empty token — stopping");
+                *shared.error.write() =
+                    Some("session expired — please sign in again".to_string());
+                *shared.status.write() = ConnectionStatus::Disconnected;
+                *shared.socket_id.write() = None;
+                emit_state_change(&shared);
+                return;
+            }
+            Err(e) => {
+                log::warn!("[socket] ws_loop: token provider failed — stopping: {e}");
+                *shared.error.write() =
+                    Some("session expired — please sign in again".to_string());
+                *shared.status.write() = ConnectionStatus::Disconnected;
+                *shared.socket_id.write() = None;
+                emit_state_change(&shared);
+                return;
+            }
+        };
+
+        log::info!(
+            "[socket] Attempting connection (token_len={})...",
+            token.len()
+        );
         *shared.status.write() = ConnectionStatus::Connecting;
         emit_state_change(&shared);
 
@@ -121,6 +147,53 @@ pub(super) async fn ws_loop(
                 consecutive_failures = 0;
                 log::warn!("[socket] Connection lost: {}", reason);
                 backoff = Duration::from_millis(1000);
+            }
+            ConnectionOutcome::Failed(reason) if is_invalid_token_error(&reason) => {
+                // The server rejected our token explicitly. Try one more
+                // provider call — in case the token was refreshed on disk
+                // since we fetched it moments ago (e.g. another code path
+                // rotated it). If the provider returns a genuinely different
+                // token, we can give it one more shot without consuming the
+                // normal backoff budget.
+                log::warn!(
+                    "[socket] Invalid token on attempt — checking for fresh token (current_len={})",
+                    token.len()
+                );
+                let fresh_result = token_provider();
+                let should_retry_fresh = fresh_result
+                    .as_ref()
+                    .ok()
+                    .map(|t| t != &token && !t.trim().is_empty())
+                    .unwrap_or(false);
+
+                if should_retry_fresh {
+                    // We have a genuinely different token — try once
+                    // immediately (no backoff sleep). If this also fails we
+                    // will go through the normal escalation path on the next
+                    // loop iteration.
+                    log::info!(
+                        "[socket] Fresh token available (len={}), retrying immediately",
+                        fresh_result.as_ref().unwrap().len()
+                    );
+                    // Don't increment consecutive_failures for a doomed
+                    // attempt we couldn't have avoided — the token we used
+                    // was already stale at fetch time.
+                    continue;
+                }
+
+                // No fresh token — the session is definitively expired.
+                // Escalate immediately (break) instead of wasting 4 more
+                // attempts on what is provably a dead token. This is the
+                // core fix for TAURI-RUST-9C (#2892).
+                log::warn!(
+                    "[socket] Session expired (no fresh token after Invalid token) — stopping reconnect loop"
+                );
+                *shared.error.write() =
+                    Some("session expired — please sign in again".to_string());
+                *shared.status.write() = ConnectionStatus::Disconnected;
+                *shared.socket_id.write() = None;
+                emit_state_change(&shared);
+                return;
             }
             ConnectionOutcome::Failed(reason) => {
                 consecutive_failures = consecutive_failures.saturating_add(1);
