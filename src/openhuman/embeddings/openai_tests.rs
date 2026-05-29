@@ -585,8 +585,10 @@ async fn embed_429_without_retry_after_uses_exponential_backoff() {
                 let mut n = counter.lock().unwrap();
                 *n += 1;
                 if *n == 1 {
-                    // No Retry-After header — backoff path is taken.
-                    // Return 0-second delay via Retry-After to keep test fast.
+                    // Mock still sets Retry-After: 0 here to keep this test fast;
+                    // the no-header exponential branch is exercised end-to-end by
+                    // `embed_429_no_retry_after_header_falls_back_to_exponential`
+                    // below and by unit tests in `retry_after.rs`.
                     axum::response::Response::builder()
                         .status(StatusCode::TOO_MANY_REQUESTS)
                         .header("Retry-After", "0")
@@ -613,5 +615,76 @@ async fn embed_429_without_retry_after_uses_exponential_backoff() {
         *counter.lock().unwrap(),
         2,
         "expected 2 total requests (1 initial + 1 retry)"
+    );
+}
+
+/// End-to-end coverage for the no-`Retry-After` exponential-backoff branch.
+///
+/// The previous "no Retry-After" test still set `Retry-After: 0` on the mock,
+/// so the embed loop never actually called `backoff_ms_for_attempt(.., None)` —
+/// the exponential fallback was only exercised by unit tests in `retry_after.rs`.
+/// This test omits the header entirely so the loop must use the `BASE_BACKOFF_MS`
+/// path. We tolerate the ~1 s wait (one retry @ `BASE_BACKOFF_MS = 1000 ms`) to
+/// keep the assertion meaningful: the real backoff schedule is what we care about.
+#[tokio::test]
+async fn embed_429_no_retry_after_header_falls_back_to_exponential() {
+    use crate::openhuman::embeddings::retry_after::BASE_BACKOFF_MS;
+    use std::sync::{Arc, Mutex};
+    use tokio::time::Instant;
+
+    let counter = Arc::new(Mutex::new(0u32));
+    let counter_clone = counter.clone();
+
+    let app = Router::new().route(
+        "/v1/embeddings",
+        post(move || {
+            let counter = counter_clone.clone();
+            async move {
+                let mut n = counter.lock().unwrap();
+                *n += 1;
+                if *n == 1 {
+                    // Crucial: omit the Retry-After header entirely so the embed
+                    // loop hits `backoff_ms_for_attempt(0, None)` =
+                    // `BASE_BACKOFF_MS` and sleeps. If a future refactor breaks
+                    // the fallback (e.g. defaulting to 0 ms) the elapsed-time
+                    // assertion below will catch it.
+                    axum::response::Response::builder()
+                        .status(StatusCode::TOO_MANY_REQUESTS)
+                        .body(axum::body::Body::from(
+                            r#"{"error":{"message":"rate limited"}}"#,
+                        ))
+                        .unwrap()
+                } else {
+                    axum::response::Response::builder()
+                        .status(StatusCode::OK)
+                        .header("Content-Type", "application/json")
+                        .body(axum::body::Body::from(r#"{"data":[{"embedding":[4.2]}]}"#))
+                        .unwrap()
+                }
+            }
+        }),
+    );
+    let url = start_mock(app).await;
+    let p = OpenAiEmbedding::new(&url, "k", "m", 1);
+
+    let start = Instant::now();
+    let result = p.embed(&["hi"]).await;
+    let elapsed = start.elapsed();
+
+    assert!(result.is_ok(), "should succeed after retry: {:?}", result);
+    assert_eq!(
+        *counter.lock().unwrap(),
+        2,
+        "expected 2 total requests (1 initial + 1 retry)"
+    );
+    // The fallback must actually wait the exponential base — within a 250 ms
+    // jitter window for slow CI runners. Without this we couldn't tell whether
+    // the no-header branch was taken or silently short-circuited.
+    let min_wait = std::time::Duration::from_millis(BASE_BACKOFF_MS.saturating_sub(250));
+    assert!(
+        elapsed >= min_wait,
+        "expected elapsed >= ~{}ms (BASE_BACKOFF_MS minus jitter), got {:?}",
+        min_wait.as_millis(),
+        elapsed
     );
 }
