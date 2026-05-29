@@ -39,7 +39,10 @@ impl CohereEmbedding {
         }
     }
 
-    /// Creates a new provider with a custom base URL — intended for tests.
+    /// Test-only base URL override.  OpenAI's base URL is constructor-injected
+    /// since its `new()` already takes one; Cohere historically hardcoded
+    /// `COHERE_API_BASE`, so this builder fills the gap for the 429 backoff
+    /// tests.
     #[cfg(test)]
     pub(crate) fn with_base_url(mut self, base: impl Into<String>) -> Self {
         self.base_url = base.into();
@@ -130,7 +133,12 @@ impl EmbeddingProvider for CohereEmbedding {
                     .and_then(|v| v.to_str().ok())
                     .map(|s| s.to_owned());
 
-                let _body_text = resp.text().await.unwrap_or_default();
+                let body_text = resp.text().await.unwrap_or_default();
+                tracing::debug!(
+                    target: "embeddings.cohere",
+                    "[embeddings] cohere {} body on retry: {body_text}",
+                    status.as_u16()
+                );
 
                 let delay_ms =
                     backoff_ms_for_attempt(attempt, retry_after_val.as_deref());
@@ -192,12 +200,14 @@ impl EmbeddingProvider for CohereEmbedding {
             return Ok(embeddings);
         }
 
-        // Retry cap exhausted — fall through with a canonical 429 error so
-        // `is_transient_upstream_http_message` suppresses the Sentry event.
-        anyhow::bail!(
-            "Cohere embed API error (429 Too Many Requests): rate limit exceeded after {} retries",
-            MAX_429_RETRIES
-        )
+        // The loop always exits via `return Ok(...)`, `bail!(...)`, or
+        // `continue`; this point is structurally unreachable.  On the final
+        // attempt (`attempt == MAX_429_RETRIES`) the retryable guard is false
+        // and execution falls into the non-2xx branch above, which bails with
+        // the body-bearing format "Cohere embed API error (429 ...): <body>" —
+        // that format preserves the "(429 " substring required by the
+        // TransientUpstreamHttp classifier in core::observability.
+        unreachable!("cohere embed retry loop must exit via return or bail")
     }
 }
 

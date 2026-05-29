@@ -153,7 +153,12 @@ impl EmbeddingProvider for OpenAiEmbedding {
                     .and_then(|v| v.to_str().ok())
                     .map(|s| s.to_owned());
 
-                let _body_text = resp.text().await.unwrap_or_default();
+                let body_text = resp.text().await.unwrap_or_default();
+                tracing::debug!(
+                    target: "openai::embed",
+                    "[embeddings] openai {} body on retry: {body_text}",
+                    status.as_u16()
+                );
 
                 let delay_ms =
                     backoff_ms_for_attempt(attempt, retry_after_val.as_deref());
@@ -249,12 +254,14 @@ impl EmbeddingProvider for OpenAiEmbedding {
             return Ok(embeddings);
         }
 
-        // Retry cap exhausted — fall through with a canonical 429 error so
-        // `is_transient_upstream_http_message` suppresses the Sentry event.
-        anyhow::bail!(
-            "Embedding API error (429 Too Many Requests): rate limit exceeded after {} retries",
-            MAX_429_RETRIES
-        )
+        // The loop always exits via `return Ok(...)`, `bail!(...)`, or
+        // `continue`; this point is structurally unreachable.  On the final
+        // attempt (`attempt == MAX_429_RETRIES`) the retryable guard is false
+        // and execution falls into the non-2xx branch above, which bails with
+        // the body-bearing format "Embedding API error (429 ...): <body>" —
+        // that format preserves the "(429 " substring required by the
+        // TransientUpstreamHttp classifier in core::observability.
+        unreachable!("embed retry loop must exit via return or bail")
     }
 }
 
