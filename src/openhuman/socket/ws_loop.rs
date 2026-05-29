@@ -93,8 +93,7 @@ pub(super) async fn ws_loop(
             Ok(t) if !t.trim().is_empty() => t,
             Ok(_) => {
                 log::error!("[socket] ws_loop: token provider returned empty token — stopping");
-                *shared.error.write() =
-                    Some("session expired — please sign in again".to_string());
+                *shared.error.write() = Some("session expired — please sign in again".to_string());
                 *shared.status.write() = ConnectionStatus::Disconnected;
                 *shared.socket_id.write() = None;
                 emit_state_change(&shared);
@@ -102,8 +101,7 @@ pub(super) async fn ws_loop(
             }
             Err(e) => {
                 log::warn!("[socket] ws_loop: token provider failed — stopping: {e}");
-                *shared.error.write() =
-                    Some("session expired — please sign in again".to_string());
+                *shared.error.write() = Some("session expired — please sign in again".to_string());
                 *shared.status.write() = ConnectionStatus::Disconnected;
                 *shared.socket_id.write() = None;
                 emit_state_change(&shared);
@@ -178,9 +176,7 @@ pub(super) async fn ws_loop(
                         // Escalate immediately instead of wasting more attempts
                         // on what is provably a dead token. This is the core fix
                         // for TAURI-RUST-9C (#2892).
-                        log::warn!(
-                            "[socket] Session expired ({reason}) — stopping reconnect loop"
-                        );
+                        log::warn!("[socket] Session expired ({reason}) — stopping reconnect loop");
                         *shared.error.write() =
                             Some("session expired — please sign in again".to_string());
                         *shared.status.write() = ConnectionStatus::Disconnected;

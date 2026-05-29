@@ -885,7 +885,8 @@ async fn spawn_mock_invalid_token_server() -> std::net::SocketAddr {
                 let ws = accept_async(stream).await.expect("ws accept");
                 let (mut write, mut read) = ws.split();
                 // 1. Send EIO OPEN.
-                let open = r#"0{"sid":"mock-eio","upgrades":[],"pingInterval":1000,"pingTimeout":2000}"#;
+                let open =
+                    r#"0{"sid":"mock-eio","upgrades":[],"pingInterval":1000,"pingTimeout":2000}"#;
                 let _ = write.send(WsMessage::Text(open.to_string())).await;
                 // 2. Drain the SIO CONNECT frame (don't care about its content).
                 let _ = read.next().await;
@@ -1113,7 +1114,9 @@ fn sio_connect_error_invalid_token_classifies_correctly() {
     ));
     // Internal errors (EIO, WS layer) must not match.
     assert!(!is_invalid_token_error("EIO OPEN: timeout"));
-    assert!(!is_invalid_token_error("WebSocket connect: connection refused"));
+    assert!(!is_invalid_token_error(
+        "WebSocket connect: connection refused"
+    ));
 }
 
 // ── decide_after_invalid_token ─────────────────────────────────────────────

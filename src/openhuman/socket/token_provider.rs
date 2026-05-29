@@ -120,7 +120,9 @@ mod tests {
 
     #[test]
     fn is_invalid_token_error_returns_false_for_unrelated_errors() {
-        assert!(!is_invalid_token_error("WebSocket connect: connection refused"));
+        assert!(!is_invalid_token_error(
+            "WebSocket connect: connection refused"
+        ));
         assert!(!is_invalid_token_error("EIO OPEN: timeout"));
         assert!(!is_invalid_token_error(""));
     }

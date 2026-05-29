@@ -225,9 +225,8 @@ fn handle_connect_with_session(_params: Map<String, Value>) -> ControllerFuture 
         // `TokenProvider` so the reconnect loop can re-read the latest
         // session token from the profile store on every subsequent attempt
         // (fix for TAURI-RUST-9C / #2892 — stale-token retry storm).
-        let config = std::sync::Arc::new(
-            crate::openhuman::config::rpc::load_config_with_timeout().await?,
-        );
+        let config =
+            std::sync::Arc::new(crate::openhuman::config::rpc::load_config_with_timeout().await?);
         let api_url = crate::api::config::effective_backend_api_url(&config.api_url);
 
         // Perform an eager check so the RPC caller gets an immediate error
