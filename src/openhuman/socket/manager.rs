@@ -140,41 +140,13 @@ impl SocketManager {
             log::error!("[socket] connect: refusing to start — empty session token");
             return Err("empty session token — authenticate first".to_string());
         }
-
-        // Ensure the rustls crypto provider is installed (needed for wss:// TLS).
-        // This is a no-op if already installed.
-        let _ = rustls::crypto::ring::default_provider().install_default();
-
-        self.disconnect().await?;
-
-        log::info!("[socket] Connecting to {}", url);
-
-        *self.shared.status.write() = ConnectionStatus::Connecting;
-        *self.shared.error.write() = None;
-        emit_state_change(&self.shared);
-
-        let (emit_tx, emit_rx) = mpsc::unbounded_channel::<String>();
-        let internal_tx = emit_tx.clone();
-        let (shutdown_tx, shutdown_rx) = watch::channel(false);
-
-        *self.emit_tx.lock().await = Some(emit_tx);
-        *self.shutdown_tx.lock().await = Some(shutdown_tx);
-
-        let url = url.to_string();
         // Wrap the static token in a provider closure. Existing callers that
         // pass a concrete token value continue to work unchanged; the provider
         // returns that same token on every call (static semantics). For
         // live-session refresh, callers should use `connect_with_session` which
         // builds a provider via `token_provider_from_config`.
         let provider = static_token_provider(token.to_string());
-        let shared = Arc::clone(&self.shared);
-
-        let handle = tokio::spawn(async move {
-            ws_loop(url, provider, shared, emit_rx, shutdown_rx, internal_tx).await;
-        });
-
-        *self.loop_handle.lock().await = Some(handle);
-        Ok(())
+        self.spawn_loop(url, provider).await
     }
 
     /// Connect using a **live-refresh token provider**.
@@ -211,13 +183,23 @@ impl SocketManager {
                 return Err(e);
             }
         }
+        self.spawn_loop(url, token_provider).await
+    }
 
+    /// Shared spawn path used by both [`connect`] and [`connect_with_provider`].
+    ///
+    /// Installs the rustls crypto provider, tears down any existing connection,
+    /// constructs the channel pair, and spawns the background `ws_loop` task.
+    /// Entry-point-specific validation (empty-token guard, provider pre-check)
+    /// is done by the callers before this is called.
+    async fn spawn_loop(&self, url: &str, provider: TokenProvider) -> Result<(), String> {
         // Ensure the rustls crypto provider is installed (needed for wss:// TLS).
+        // This is a no-op if already installed.
         let _ = rustls::crypto::ring::default_provider().install_default();
 
         self.disconnect().await?;
 
-        log::info!("[socket] Connecting (live-token provider) to {}", url);
+        log::info!("[socket] Connecting to {}", url);
 
         *self.shared.status.write() = ConnectionStatus::Connecting;
         *self.shared.error.write() = None;
@@ -234,7 +216,7 @@ impl SocketManager {
         let shared = Arc::clone(&self.shared);
 
         let handle = tokio::spawn(async move {
-            ws_loop(url, token_provider, shared, emit_rx, shutdown_rx, internal_tx).await;
+            ws_loop(url, provider, shared, emit_rx, shutdown_rx, internal_tx).await;
         });
 
         *self.loop_handle.lock().await = Some(handle);
