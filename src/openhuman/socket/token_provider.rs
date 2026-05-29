@@ -1,7 +1,7 @@
 //! Token-provider abstraction for the WebSocket reconnect loop.
 //!
-//! Separating this into its own module keeps `ws_loop.rs` under 500 lines
-//! and makes the provider contract easy to unit-test in isolation.
+//! Separating this into its own module isolates the token contract for unit
+//! testing and keeps token-refresh logic out of the connection-loop hot path.
 //!
 //! ## Why a callback instead of `String`?
 //!
@@ -26,17 +26,16 @@ use std::sync::Arc;
 /// requiring `async_fn_in_trait` or boxing.
 pub(super) type TokenProvider = Arc<dyn Fn() -> Result<String, String> + Send + Sync>;
 
-/// Classify a `ConnectionOutcome::Failed` reason string as an "Invalid token"
-/// rejection from the Socket.IO server.
+/// Returns `true` iff the failure reason carries both the Socket.IO CONNECT
+/// prefix AND the `"invalid token"` sentinel — a strict double anchor to avoid
+/// misclassifying unrelated bare 401s (e.g. an upstream HTTP error message
+/// that happens to contain `"invalid token"`).
 ///
-/// The upstream shape is produced by `read_sio_connect_ack()`:
+/// The upstream shape produced by `read_sio_connect_ack()` is:
 /// ```text
 /// Socket.IO connect error: Invalid token
 /// ```
-/// but the exact message text may include capitalization variants or be
-/// wrapped in extra context by future callers — match case-insensitively and
-/// by substring so minor variations stay covered without needing a second
-/// change here.
+/// Matching is case-insensitive so capitalisation variants are also caught.
 ///
 /// This function is `pub(super)` so `ws_loop.rs` and the tests module can call
 /// it without exporting it beyond the `socket` domain.
