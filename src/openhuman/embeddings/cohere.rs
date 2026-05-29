@@ -19,6 +19,7 @@ pub struct CohereEmbedding {
     api_key: String,
     model: String,
     dims: usize,
+    base_url: String,
 }
 
 impl CohereEmbedding {
@@ -34,7 +35,15 @@ impl CohereEmbedding {
             api_key: api_key.to_string(),
             model,
             dims,
+            base_url: COHERE_API_BASE.to_string(),
         }
+    }
+
+    /// Creates a new provider with a custom base URL — intended for tests.
+    #[cfg(test)]
+    pub(crate) fn with_base_url(mut self, base: impl Into<String>) -> Self {
+        self.base_url = base.into();
+        self
     }
 
     fn http_client(&self) -> reqwest::Client {
@@ -80,9 +89,9 @@ impl EmbeddingProvider for CohereEmbedding {
             return Ok(Vec::new());
         }
 
-        super::rate_limit::acquire_embedding_slot(COHERE_API_BASE).await;
+        super::rate_limit::acquire_embedding_slot(&self.base_url).await;
 
-        let url = format!("{COHERE_API_BASE}/v2/embed");
+        let url = format!("{}/v2/embed", self.base_url);
 
         tracing::debug!(
             target: "embeddings.cohere",
@@ -242,93 +251,11 @@ mod tests {
         format!("http://127.0.0.1:{}", addr.port())
     }
 
-    /// Replace the COHERE_API_BASE constant for a test by constructing a
-    /// CohereEmbedding-like request manually (the struct hardcodes the base URL,
-    /// so we test via the mock server by patching the URL in the request builder
-    /// directly).
-    ///
-    /// Because CohereEmbedding::embed hardcodes `COHERE_API_BASE`, we create a
-    /// local thin wrapper that overrides the endpoint for test purposes.
-    struct TestCohereEmbedding {
-        inner: CohereEmbedding,
-        url: String,
-    }
-
-    impl TestCohereEmbedding {
-        fn new(api_key: &str, model: &str, dims: usize, url: String) -> Self {
-            Self {
-                inner: CohereEmbedding::new(api_key, model, dims),
-                url,
-            }
-        }
-
-        async fn embed(&self, texts: &[&str]) -> anyhow::Result<Vec<Vec<f32>>> {
-            if texts.is_empty() {
-                return Ok(Vec::new());
-            }
-
-            let body = serde_json::json!({
-                "model": self.inner.model,
-                "texts": texts,
-                "input_type": "search_document",
-                "embedding_types": ["float"],
-            });
-
-            for attempt in 0..=MAX_429_RETRIES {
-                let resp = self
-                    .inner
-                    .http_client()
-                    .post(&self.url)
-                    .header("Content-Type", "application/json")
-                    .header("Authorization", format!("Bearer {}", self.inner.api_key))
-                    .json(&body)
-                    .send()
-                    .await?;
-
-                let status = resp.status();
-                let is_retryable = status.as_u16() == 429 || status.as_u16() == 503;
-
-                if is_retryable && attempt < MAX_429_RETRIES {
-                    let retry_after_val = resp
-                        .headers()
-                        .get(reqwest::header::RETRY_AFTER)
-                        .and_then(|v| v.to_str().ok())
-                        .map(|s| s.to_owned());
-                    let _body = resp.text().await.unwrap_or_default();
-                    let delay_ms =
-                        super::super::retry_after::backoff_ms_for_attempt(
-                            attempt,
-                            retry_after_val.as_deref(),
-                        );
-                    tokio::time::sleep(std::time::Duration::from_millis(delay_ms)).await;
-                    continue;
-                }
-
-                if !status.is_success() {
-                    let text = resp.text().await.unwrap_or_default();
-                    anyhow::bail!("Cohere embed API error ({status}): {text}");
-                }
-
-                #[derive(serde::Deserialize)]
-                struct R {
-                    embeddings: E,
-                }
-                #[derive(serde::Deserialize)]
-                struct E {
-                    float: Vec<Vec<f32>>,
-                }
-                let payload: R = resp.json().await?;
-                return Ok(payload.embeddings.float);
-            }
-
-            anyhow::bail!(
-                "Cohere embed API error (429 Too Many Requests): rate limit exceeded after {} retries",
-                MAX_429_RETRIES
-            )
-        }
-    }
-
     /// Cohere 429 then success — verifies retry recovers.
+    ///
+    /// The mock returns 429 (with Retry-After: 0 for zero real-wall-clock delay)
+    /// twice, then 200 on the third call.  The real `CohereEmbedding::embed` is
+    /// driven via `with_base_url` pointing at the axum mock server.
     #[tokio::test]
     async fn cohere_embed_429_then_success() {
         let counter = Arc::new(Mutex::new(0u32));
@@ -342,15 +269,11 @@ mod tests {
                     let mut n = counter.lock().unwrap();
                     *n += 1;
                     if *n <= 2 {
-                        (
-                            StatusCode::TOO_MANY_REQUESTS,
-                            axum::response::Response::builder()
-                                .status(StatusCode::TOO_MANY_REQUESTS)
-                                .header("Retry-After", "0")
-                                .body(axum::body::Body::from(r#"{"message":"rate limited"}"#))
-                                .unwrap(),
-                        )
-                            .1
+                        axum::response::Response::builder()
+                            .status(StatusCode::TOO_MANY_REQUESTS)
+                            .header("Retry-After", "0")
+                            .body(axum::body::Body::from(r#"{"message":"rate limited"}"#))
+                            .unwrap()
                     } else {
                         axum::response::Response::builder()
                             .status(StatusCode::OK)
@@ -365,15 +288,16 @@ mod tests {
         );
 
         let base_url = start_mock(app).await;
-        let url = format!("{base_url}/v2/embed");
-        let p = TestCohereEmbedding::new("test-key", "embed-english-v3.0", 2, url);
+        let p = CohereEmbedding::new("test-key", "embed-english-v3.0", 2)
+            .with_base_url(&base_url);
 
         let result = p.embed(&["hello"]).await.unwrap();
         assert_eq!(result.len(), 1);
         assert_eq!(*counter.lock().unwrap(), 3, "should have taken 3 requests");
     }
 
-    /// Cohere 429 indefinitely — verify bail with canonical message.
+    /// Cohere 429 indefinitely — verify bail with canonical message after retry
+    /// cap, and that exactly `MAX_429_RETRIES + 1` requests were made.
     #[tokio::test]
     async fn cohere_embed_429_indefinite_bails_after_cap() {
         let counter = Arc::new(Mutex::new(0u32));
@@ -396,8 +320,8 @@ mod tests {
         );
 
         let base_url = start_mock(app).await;
-        let url = format!("{base_url}/v2/embed");
-        let p = TestCohereEmbedding::new("test-key", "embed-english-v3.0", 2, url);
+        let p = CohereEmbedding::new("test-key", "embed-english-v3.0", 2)
+            .with_base_url(&base_url);
 
         let err = p.embed(&["hello"]).await.unwrap_err();
         let msg = err.to_string();
