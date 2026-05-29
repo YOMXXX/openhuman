@@ -21,6 +21,7 @@
 /// Order doesn't matter for correctness, but is kept alphabetical by legacy
 /// key for easier diffing against the frontend table.
 const LEGACY_ALIASES: &[(&str, &str)] = &[
+    ("health_snapshot", "openhuman.health_snapshot"),
     (
         "openhuman.get_analytics_settings",
         "openhuman.config_get_analytics_settings",
@@ -349,6 +350,14 @@ mod tests {
         assert_eq!(
             resolve_legacy("openhuman.update_composio_trigger_settings"),
             "openhuman.config_update_composio_trigger_settings",
+        );
+    }
+
+    #[test]
+    fn health_snapshot_resolves_to_canonical() {
+        assert_eq!(
+            resolve_legacy("health_snapshot"),
+            "openhuman.health_snapshot"
         );
     }
 
