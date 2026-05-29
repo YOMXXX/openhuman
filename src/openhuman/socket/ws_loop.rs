@@ -72,6 +72,15 @@ pub(super) async fn ws_loop(
     let mut backoff = Duration::from_millis(1000);
     let max_backoff = Duration::from_secs(30);
     let mut consecutive_failures: u32 = 0;
+    // How many `RetryImmediately` short-circuits we've taken in the **current**
+    // "fresh-token cycle" (i.e. since the last successful connection or
+    // non-token-related failure). Bounded to 1 so a buggy / non-deterministic
+    // provider that returns a *different* non-empty token on every call cannot
+    // hot-loop: connect → Invalid token → fresh token → connect → Invalid token
+    // → fresh token → ... with no sleep and no escalation. After one immediate
+    // shot we fall through to the normal backoff + escalation path. See the
+    // CodeRabbit Major on PR #2905.
+    let mut fresh_token_retries: u32 = 0;
 
     // `ws_url` is the *resolved* socket URL we're currently connecting to.
     // If the backend responds with an HTTP 3xx during the upgrade (typical when
@@ -135,7 +144,10 @@ pub(super) async fn ws_loop(
                 // `Lost` is only returned after a successful SIO CONNECT ACK
                 // (see `run_connection`), so reaching this arm proves the
                 // backend is reachable and the token is valid. Reset both
-                // the backoff and the failure streak.
+                // the backoff and the failure streak — and clear the
+                // fresh-token retry counter so a long-lived session that
+                // accumulated a RetryImmediately on a prior reconnect cycle
+                // doesn't carry that dead state into the next one.
                 if consecutive_failures > 0 {
                     log::debug!(
                         "[socket] Connection re-established; resetting failure streak ({} cleared)",
@@ -143,6 +155,7 @@ pub(super) async fn ws_loop(
                     );
                 }
                 consecutive_failures = 0;
+                fresh_token_retries = 0;
                 log::warn!("[socket] Connection lost: {}", reason);
                 backoff = Duration::from_millis(1000);
             }
@@ -159,17 +172,39 @@ pub(super) async fn ws_loop(
                 );
                 match decide_after_invalid_token(&token, &token_provider) {
                     InvalidTokenAction::RetryImmediately { fresh_len } => {
-                        // We have a genuinely different token — try once
-                        // immediately (no backoff sleep). If this also fails we
-                        // will go through the normal escalation path on the next
-                        // loop iteration.
-                        log::info!(
-                            "[socket] Fresh token available (len={fresh_len}), retrying immediately"
-                        );
-                        // Don't increment consecutive_failures for an attempt we
-                        // couldn't have avoided — the token we used was already
-                        // stale at fetch time.
-                        continue;
+                        fresh_token_retries = fresh_token_retries.saturating_add(1);
+                        if fresh_token_retries > 1 {
+                            // We already gave the fresh-token cycle one
+                            // immediate shot. A provider that keeps returning
+                            // *different* non-empty tokens (rapid server-side
+                            // rotation, non-deterministic source, buggy impl)
+                            // could otherwise hot-loop forever with no sleep
+                            // and no escalation — arguably worse than the
+                            // 5-retry storm this PR was originally fixing. Fall
+                            // through to the normal failure path so backoff
+                            // sleeps and `consecutive_failures` escalation
+                            // converge on a definitive outcome.
+                            log::warn!(
+                                "[socket] Fresh token available (len={fresh_len}) but already \
+                                 retried once this cycle — escalating to normal backoff path"
+                            );
+                            consecutive_failures = consecutive_failures.saturating_add(1);
+                            log_connection_failure(consecutive_failures, &reason);
+                            // Fall through to the backoff sleep below.
+                        } else {
+                            // We have a genuinely different token — try once
+                            // immediately (no backoff sleep). If this also fails we
+                            // will go through the normal escalation path on the next
+                            // loop iteration (either same-token Escalate or the
+                            // bounded fall-through above).
+                            log::info!(
+                                "[socket] Fresh token available (len={fresh_len}), retrying immediately"
+                            );
+                            // Don't increment consecutive_failures for an attempt we
+                            // couldn't have avoided — the token we used was already
+                            // stale at fetch time.
+                            continue;
+                        }
                     }
                     InvalidTokenAction::Escalate { reason } => {
                         // No fresh token — the session is definitively expired.
