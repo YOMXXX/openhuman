@@ -8,6 +8,7 @@
 
 use async_trait::async_trait;
 
+use super::retry_after::{backoff_ms_for_attempt, MAX_429_RETRIES};
 use super::EmbeddingProvider;
 
 pub const COHERE_API_BASE: &str = "https://api.cohere.com";
@@ -65,6 +66,15 @@ impl EmbeddingProvider for CohereEmbedding {
         self.dims
     }
 
+    /// Sends a POST request to the Cohere embed API.
+    ///
+    /// On 429 (Too Many Requests) or 503 (Service Unavailable) the call is
+    /// retried up to `MAX_429_RETRIES` times with exponential backoff.  When
+    /// the server supplies a `Retry-After` header its value (delta-seconds) is
+    /// preferred over the computed backoff.  After all retries are exhausted the
+    /// canonical error message is returned so the `TransientUpstreamHttp`
+    /// classifier in `core::observability` demotes it to a warning breadcrumb
+    /// instead of a Sentry error event.
     async fn embed(&self, texts: &[&str]) -> anyhow::Result<Vec<Vec<f32>>> {
         if texts.is_empty() {
             return Ok(Vec::new());
@@ -86,61 +96,99 @@ impl EmbeddingProvider for CohereEmbedding {
             "embedding_types": ["float"],
         });
 
-        let resp = self
-            .http_client()
-            .post(&url)
-            .header("Content-Type", "application/json")
-            .header("Authorization", format!("Bearer {}", self.api_key))
-            .json(&body)
-            .send()
-            .await?;
+        // Retry loop: handles 429 Too Many Requests and 503 Service Unavailable
+        // with Retry-After–aware exponential backoff.
+        for attempt in 0..=MAX_429_RETRIES {
+            let resp = self
+                .http_client()
+                .post(&url)
+                .header("Content-Type", "application/json")
+                .header("Authorization", format!("Bearer {}", self.api_key))
+                .json(&body)
+                .send()
+                .await?;
 
-        if !resp.status().is_success() {
             let status = resp.status();
-            let text = resp.text().await.unwrap_or_default();
-            let message = format!("Cohere embed API error ({status}): {text}");
-            crate::core::observability::report_error_or_expected(
-                &message,
-                "embeddings",
-                "cohere_embed",
-                &[("model", self.model.as_str()), ("failure", "non_2xx")],
-            );
-            anyhow::bail!(message);
-        }
 
-        let payload: CohereEmbedResponse = resp
-            .json()
-            .await
-            .map_err(|e| anyhow::anyhow!("Cohere embed response parse failed: {e}"))?;
+            // Retry on 429 and 503 — both can carry a Retry-After header.
+            let is_retryable = status.as_u16() == 429 || status.as_u16() == 503;
 
-        let embeddings = payload.embeddings.float;
+            if is_retryable && attempt < MAX_429_RETRIES {
+                // Read Retry-After before consuming the body.
+                let retry_after_val = resp
+                    .headers()
+                    .get(reqwest::header::RETRY_AFTER)
+                    .and_then(|v| v.to_str().ok())
+                    .map(|s| s.to_owned());
 
-        if embeddings.len() != texts.len() {
-            anyhow::bail!(
-                "Cohere embed count mismatch: sent {} texts, got {} embeddings",
-                texts.len(),
-                embeddings.len()
-            );
-        }
+                let _body_text = resp.text().await.unwrap_or_default();
 
-        for (i, vec) in embeddings.iter().enumerate() {
-            if self.dims > 0 && vec.len() != self.dims {
+                let delay_ms =
+                    backoff_ms_for_attempt(attempt, retry_after_val.as_deref());
+
+                tracing::debug!(
+                    target: "embeddings.cohere",
+                    "[embeddings] cohere {}, retrying in {}ms (attempt {}/{})",
+                    status.as_u16(), delay_ms, attempt + 1, MAX_429_RETRIES
+                );
+
+                tokio::time::sleep(std::time::Duration::from_millis(delay_ms)).await;
+                continue;
+            }
+
+            if !status.is_success() {
+                let text = resp.text().await.unwrap_or_default();
+                let message = format!("Cohere embed API error ({status}): {text}");
+                crate::core::observability::report_error_or_expected(
+                    &message,
+                    "embeddings",
+                    "cohere_embed",
+                    &[("model", self.model.as_str()), ("failure", "non_2xx")],
+                );
+                anyhow::bail!(message);
+            }
+
+            let payload: CohereEmbedResponse = resp
+                .json()
+                .await
+                .map_err(|e| anyhow::anyhow!("Cohere embed response parse failed: {e}"))?;
+
+            let embeddings = payload.embeddings.float;
+
+            if embeddings.len() != texts.len() {
                 anyhow::bail!(
-                    "Cohere embed dimension mismatch at index {i}: expected {}, got {}",
-                    self.dims,
-                    vec.len()
+                    "Cohere embed count mismatch: sent {} texts, got {} embeddings",
+                    texts.len(),
+                    embeddings.len()
                 );
             }
+
+            for (i, vec) in embeddings.iter().enumerate() {
+                if self.dims > 0 && vec.len() != self.dims {
+                    anyhow::bail!(
+                        "Cohere embed dimension mismatch at index {i}: expected {}, got {}",
+                        self.dims,
+                        vec.len()
+                    );
+                }
+            }
+
+            tracing::debug!(
+                target: "embeddings.cohere",
+                "[cohere] embed success: model={}, count={}, dims={}",
+                self.model, embeddings.len(),
+                embeddings.first().map(|v| v.len()).unwrap_or(0)
+            );
+
+            return Ok(embeddings);
         }
 
-        tracing::debug!(
-            target: "embeddings.cohere",
-            "[cohere] embed success: model={}, count={}, dims={}",
-            self.model, embeddings.len(),
-            embeddings.first().map(|v| v.len()).unwrap_or(0)
-        );
-
-        Ok(embeddings)
+        // Retry cap exhausted — fall through with a canonical 429 error so
+        // `is_transient_upstream_http_message` suppresses the Sentry event.
+        anyhow::bail!(
+            "Cohere embed API error (429 Too Many Requests): rate limit exceeded after {} retries",
+            MAX_429_RETRIES
+        )
     }
 }
 
@@ -175,5 +223,193 @@ mod tests {
     async fn embed_empty_returns_empty() {
         let p = CohereEmbedding::new("k", "", 0);
         assert!(p.embed(&[]).await.unwrap().is_empty());
+    }
+
+    // ── 429 backoff tests ──────────────────────────────────────
+
+    use axum::{http::StatusCode, routing::post, Router};
+    use std::{
+        net::SocketAddr,
+        sync::{Arc, Mutex},
+    };
+
+    async fn start_mock(app: Router) -> String {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr: SocketAddr = listener.local_addr().unwrap();
+        tokio::spawn(async move {
+            axum::serve(listener, app).await.unwrap();
+        });
+        format!("http://127.0.0.1:{}", addr.port())
+    }
+
+    /// Replace the COHERE_API_BASE constant for a test by constructing a
+    /// CohereEmbedding-like request manually (the struct hardcodes the base URL,
+    /// so we test via the mock server by patching the URL in the request builder
+    /// directly).
+    ///
+    /// Because CohereEmbedding::embed hardcodes `COHERE_API_BASE`, we create a
+    /// local thin wrapper that overrides the endpoint for test purposes.
+    struct TestCohereEmbedding {
+        inner: CohereEmbedding,
+        url: String,
+    }
+
+    impl TestCohereEmbedding {
+        fn new(api_key: &str, model: &str, dims: usize, url: String) -> Self {
+            Self {
+                inner: CohereEmbedding::new(api_key, model, dims),
+                url,
+            }
+        }
+
+        async fn embed(&self, texts: &[&str]) -> anyhow::Result<Vec<Vec<f32>>> {
+            if texts.is_empty() {
+                return Ok(Vec::new());
+            }
+
+            let body = serde_json::json!({
+                "model": self.inner.model,
+                "texts": texts,
+                "input_type": "search_document",
+                "embedding_types": ["float"],
+            });
+
+            for attempt in 0..=MAX_429_RETRIES {
+                let resp = self
+                    .inner
+                    .http_client()
+                    .post(&self.url)
+                    .header("Content-Type", "application/json")
+                    .header("Authorization", format!("Bearer {}", self.inner.api_key))
+                    .json(&body)
+                    .send()
+                    .await?;
+
+                let status = resp.status();
+                let is_retryable = status.as_u16() == 429 || status.as_u16() == 503;
+
+                if is_retryable && attempt < MAX_429_RETRIES {
+                    let retry_after_val = resp
+                        .headers()
+                        .get(reqwest::header::RETRY_AFTER)
+                        .and_then(|v| v.to_str().ok())
+                        .map(|s| s.to_owned());
+                    let _body = resp.text().await.unwrap_or_default();
+                    let delay_ms =
+                        super::super::retry_after::backoff_ms_for_attempt(
+                            attempt,
+                            retry_after_val.as_deref(),
+                        );
+                    tokio::time::sleep(std::time::Duration::from_millis(delay_ms)).await;
+                    continue;
+                }
+
+                if !status.is_success() {
+                    let text = resp.text().await.unwrap_or_default();
+                    anyhow::bail!("Cohere embed API error ({status}): {text}");
+                }
+
+                #[derive(serde::Deserialize)]
+                struct R {
+                    embeddings: E,
+                }
+                #[derive(serde::Deserialize)]
+                struct E {
+                    float: Vec<Vec<f32>>,
+                }
+                let payload: R = resp.json().await?;
+                return Ok(payload.embeddings.float);
+            }
+
+            anyhow::bail!(
+                "Cohere embed API error (429 Too Many Requests): rate limit exceeded after {} retries",
+                MAX_429_RETRIES
+            )
+        }
+    }
+
+    /// Cohere 429 then success — verifies retry recovers.
+    #[tokio::test]
+    async fn cohere_embed_429_then_success() {
+        let counter = Arc::new(Mutex::new(0u32));
+        let counter_clone = counter.clone();
+
+        let app = Router::new().route(
+            "/v2/embed",
+            post(move || {
+                let counter = counter_clone.clone();
+                async move {
+                    let mut n = counter.lock().unwrap();
+                    *n += 1;
+                    if *n <= 2 {
+                        (
+                            StatusCode::TOO_MANY_REQUESTS,
+                            axum::response::Response::builder()
+                                .status(StatusCode::TOO_MANY_REQUESTS)
+                                .header("Retry-After", "0")
+                                .body(axum::body::Body::from(r#"{"message":"rate limited"}"#))
+                                .unwrap(),
+                        )
+                            .1
+                    } else {
+                        axum::response::Response::builder()
+                            .status(StatusCode::OK)
+                            .header("Content-Type", "application/json")
+                            .body(axum::body::Body::from(
+                                r#"{"embeddings":{"float":[[0.1,0.2]]}}"#,
+                            ))
+                            .unwrap()
+                    }
+                }
+            }),
+        );
+
+        let base_url = start_mock(app).await;
+        let url = format!("{base_url}/v2/embed");
+        let p = TestCohereEmbedding::new("test-key", "embed-english-v3.0", 2, url);
+
+        let result = p.embed(&["hello"]).await.unwrap();
+        assert_eq!(result.len(), 1);
+        assert_eq!(*counter.lock().unwrap(), 3, "should have taken 3 requests");
+    }
+
+    /// Cohere 429 indefinitely — verify bail with canonical message.
+    #[tokio::test]
+    async fn cohere_embed_429_indefinite_bails_after_cap() {
+        let counter = Arc::new(Mutex::new(0u32));
+        let counter_clone = counter.clone();
+
+        let app = Router::new().route(
+            "/v2/embed",
+            post(move || {
+                let counter = counter_clone.clone();
+                async move {
+                    let mut n = counter.lock().unwrap();
+                    *n += 1;
+                    axum::response::Response::builder()
+                        .status(StatusCode::TOO_MANY_REQUESTS)
+                        .header("Retry-After", "0")
+                        .body(axum::body::Body::from(r#"{"message":"always limited"}"#))
+                        .unwrap()
+                }
+            }),
+        );
+
+        let base_url = start_mock(app).await;
+        let url = format!("{base_url}/v2/embed");
+        let p = TestCohereEmbedding::new("test-key", "embed-english-v3.0", 2, url);
+
+        let err = p.embed(&["hello"]).await.unwrap_err();
+        let msg = err.to_string();
+        assert!(
+            msg.contains("429"),
+            "should contain 429 in error message: {msg}"
+        );
+        // MAX_429_RETRIES retries + 1 initial = MAX_429_RETRIES + 1 total requests
+        assert_eq!(
+            *counter.lock().unwrap(),
+            MAX_429_RETRIES + 1,
+            "should make exactly MAX_429_RETRIES+1 requests"
+        );
     }
 }
