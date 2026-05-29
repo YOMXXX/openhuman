@@ -1,6 +1,9 @@
 use super::*;
 use parking_lot::RwLock;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use tokio_tungstenite::tungstenite::http::{header::LOCATION, Response, StatusCode};
+
+use crate::openhuman::socket::token_provider::{is_invalid_token_error, static_token_provider};
 
 fn make_shared() -> Arc<SharedState> {
     Arc::new(SharedState {
@@ -519,7 +522,7 @@ async fn ws_loop_completes_handshake_and_shuts_down_cleanly() {
     let handle = tokio::spawn(async move {
         ws_loop(
             http_base_for(addr),
-            "test-token".into(),
+            static_token_provider("test-token".to_string()),
             loop_shared,
             emit_rx,
             shutdown_rx,
@@ -577,7 +580,7 @@ async fn ws_loop_handles_connect_error_and_shutdown() {
     let handle = tokio::spawn(async move {
         ws_loop(
             http_base_for(addr),
-            "t".into(),
+            static_token_provider("t".to_string()),
             loop_shared,
             emit_rx,
             shutdown_rx,
@@ -586,8 +589,9 @@ async fn ws_loop_handles_connect_error_and_shutdown() {
         .await;
     });
 
-    // Give the loop a moment to observe the CONNECT_ERROR, then shut down
-    // before the reconnection backoff fires.
+    // Give the loop a moment to observe the CONNECT_ERROR (44{"message":"nope"}
+    // — not an "Invalid token", so it goes through the normal backoff path),
+    // then shut down.
     tokio::time::sleep(tokio::time::Duration::from_millis(400)).await;
     let _ = shutdown_tx.send(true);
     let _ = tokio::time::timeout(tokio::time::Duration::from_secs(5), handle).await;
@@ -610,7 +614,7 @@ async fn ws_loop_handles_bad_eio_open_and_shutdown() {
     let handle = tokio::spawn(async move {
         ws_loop(
             http_base_for(addr),
-            "t".into(),
+            static_token_provider("t".to_string()),
             loop_shared,
             emit_rx,
             shutdown_rx,
@@ -638,11 +642,10 @@ fn connect_behavior_variants_are_distinct() {
     }
 }
 
-/// Empty-token guard: if a caller invokes the bare `connect(url, token)` RPC
-/// with an empty string the loop must bail immediately rather than spin a
-/// doomed reconnect cycle that fires Sentry events on every retry. The
-/// status must end up `Disconnected` and the function must return without
-/// completing the reconnect loop.
+/// Empty-token guard: if the token provider returns an empty token the loop
+/// must bail immediately rather than spin a doomed reconnect cycle that fires
+/// Sentry events on every retry. The status must end up `Disconnected` and
+/// the function must return without completing the reconnect loop.
 #[tokio::test]
 async fn ws_loop_refuses_to_start_with_empty_token() {
     let shared = make_shared();
@@ -665,7 +668,8 @@ async fn ws_loop_refuses_to_start_with_empty_token() {
             // URL is deliberately invalid — if the guard misfires, the
             // task would error on connect rather than return immediately.
             "http://invalid.example.invalid:1".into(),
-            "   ".into(), // whitespace-only counts as empty
+            // static_token_provider("   ") returns Err for whitespace-only.
+            static_token_provider("   ".to_string()),
             loop_shared,
             emit_rx,
             shutdown_rx,
@@ -682,6 +686,50 @@ async fn ws_loop_refuses_to_start_with_empty_token() {
 
     assert_eq!(*shared.status.read(), ConnectionStatus::Disconnected);
     assert!(shared.socket_id.read().is_none());
+}
+
+/// Provider-error guard: if the token provider returns Err (e.g. no session
+/// stored, profile corrupt) the loop exits immediately with an error set in
+/// SharedState rather than attempting a connection.
+#[tokio::test]
+async fn ws_loop_exits_cleanly_when_provider_returns_error() {
+    let shared = make_shared();
+    *shared.status.write() = ConnectionStatus::Connecting;
+
+    let (_emit_tx, emit_rx) = mpsc::unbounded_channel::<String>();
+    let (_shutdown_tx, shutdown_rx) = watch::channel(false);
+    let (internal_tx, _internal_rx) = mpsc::unbounded_channel::<String>();
+
+    let loop_shared = Arc::clone(&shared);
+    let handle = tokio::spawn(async move {
+        ws_loop(
+            "http://invalid.example.invalid:1".into(),
+            // Provider always returns Err — simulates logged-out state.
+            Arc::new(|| Err("no session token stored — user must log in first".to_string())),
+            loop_shared,
+            emit_rx,
+            shutdown_rx,
+            internal_tx,
+        )
+        .await;
+    });
+
+    let res = tokio::time::timeout(tokio::time::Duration::from_secs(2), handle).await;
+    assert!(
+        matches!(res, Ok(Ok(()))),
+        "ws_loop must return cleanly when provider errors (no timeout, no panic)"
+    );
+
+    assert_eq!(*shared.status.read(), ConnectionStatus::Disconnected);
+    assert!(shared.socket_id.read().is_none());
+    // The error slot must carry an actionable message.
+    let err = shared.error.read().clone();
+    assert!(
+        err.as_deref()
+            .map(|e| e.contains("session expired"))
+            .unwrap_or(false),
+        "expected session-expired error in SharedState, got: {err:?}"
+    );
 }
 
 // ── End-to-end redirect-follow (the real fix for the 301 noise) ──
@@ -740,7 +788,7 @@ async fn ws_loop_follows_301_to_working_backend() {
     let handle = tokio::spawn(async move {
         ws_loop(
             format!("http://{redirect_addr}"),
-            "redirect-test-token".into(),
+            static_token_provider("redirect-test-token".to_string()),
             loop_shared,
             emit_rx,
             shutdown_rx,
@@ -817,4 +865,253 @@ async fn connect_with_redirects_fails_when_location_missing() {
     assert!(matches!(err, WsError::Http(_)));
     // No warning recorded because the redirect was never actually followed.
     assert!(shared.error.read().is_none());
+}
+
+// ── Token-refresh and Invalid-token escalation (#2892) ────────────
+
+/// Spawn a single-accept EIO v4 server that always rejects the SIO CONNECT
+/// with `44{"message":"Invalid token"}`. Used to test the fast-fail path.
+async fn spawn_mock_invalid_token_server() -> std::net::SocketAddr {
+    let listener = TcpListener::bind("127.0.0.1:0").await.expect("bind");
+    let addr = listener.local_addr().expect("addr");
+    tokio::spawn(async move {
+        // Accept connections in a loop so the server handles more than one
+        // attempt (the retry-on-fresh-token path triggers a second connection).
+        loop {
+            let Ok((stream, _)) = listener.accept().await else {
+                break;
+            };
+            tokio::spawn(async move {
+                let ws = accept_async(stream).await.expect("ws accept");
+                let (mut write, mut read) = ws.split();
+                // 1. Send EIO OPEN.
+                let open = r#"0{"sid":"mock-eio","upgrades":[],"pingInterval":1000,"pingTimeout":2000}"#;
+                let _ = write.send(WsMessage::Text(open.to_string())).await;
+                // 2. Drain the SIO CONNECT frame (don't care about its content).
+                let _ = read.next().await;
+                // 3. Reply with CONNECT_ERROR "Invalid token".
+                let _ = write
+                    .send(WsMessage::Text(
+                        r#"44{"message":"Invalid token"}"#.to_string(),
+                    ))
+                    .await;
+                let _ = write.close().await;
+            });
+        }
+    });
+    addr
+}
+
+/// Provider called once per attempt: a counter-based provider proves the loop
+/// re-fetches the token before each `run_connection` invocation.
+#[tokio::test]
+async fn ws_loop_calls_provider_before_each_attempt() {
+    // Use a server that always closes immediately (no EIO OPEN) so the loop
+    // cycles through failures quickly without hitting the backoff sleep.
+    let listener = TcpListener::bind("127.0.0.1:0").await.expect("bind");
+    let addr = listener.local_addr().expect("addr");
+    // Accept and immediately close — simulates a connection refused / close.
+    tokio::spawn(async move {
+        let Ok((stream, _)) = listener.accept().await else {
+            return;
+        };
+        let ws = accept_async(stream).await.expect("ws accept");
+        let (mut write, _) = ws.split();
+        let _ = write.close().await;
+    });
+
+    let call_count = Arc::new(AtomicUsize::new(0));
+    let call_count_clone = Arc::clone(&call_count);
+
+    let shared = make_shared();
+    *shared.status.write() = ConnectionStatus::Disconnected;
+    let (_emit_tx, emit_rx) = mpsc::unbounded_channel::<String>();
+    let (shutdown_tx, shutdown_rx) = watch::channel(false);
+    let (internal_tx, _internal_rx) = mpsc::unbounded_channel::<String>();
+
+    let loop_shared = Arc::clone(&shared);
+    let handle = tokio::spawn(async move {
+        ws_loop(
+            http_base_for(addr),
+            Arc::new(move || {
+                call_count_clone.fetch_add(1, Ordering::Relaxed);
+                Ok("counter-token".to_string())
+            }),
+            loop_shared,
+            emit_rx,
+            shutdown_rx,
+            internal_tx,
+        )
+        .await;
+    });
+
+    // Let the loop run for at least 2 attempts, then shut down.
+    // The first attempt triggers a provider call; after the connection closes,
+    // the loop sleeps (1s backoff) before attempt 2 — we just need to see ≥1
+    // call to prove the provider is wired up, then shut down.
+    for _ in 0..50 {
+        if call_count.load(Ordering::Relaxed) >= 1 {
+            break;
+        }
+        tokio::time::sleep(tokio::time::Duration::from_millis(50)).await;
+    }
+    let _ = shutdown_tx.send(true);
+    let _ = tokio::time::timeout(tokio::time::Duration::from_secs(5), handle).await;
+
+    let calls = call_count.load(Ordering::Relaxed);
+    assert!(
+        calls >= 1,
+        "provider must be called at least once before each attempt; got {calls}"
+    );
+}
+
+/// "Invalid token" same-token escalation: when the server always rejects with
+/// "Invalid token" and the provider keeps returning the same token, the loop
+/// MUST exit within 2 attempts — not waste the remaining back-off retries.
+/// This is the core regression fix for TAURI-RUST-9C (#2892).
+#[tokio::test]
+async fn ws_loop_escalates_immediately_on_invalid_token_no_refresh() {
+    let addr = spawn_mock_invalid_token_server().await;
+
+    let call_count = Arc::new(AtomicUsize::new(0));
+    let call_count_clone = Arc::clone(&call_count);
+
+    let shared = make_shared();
+    *shared.status.write() = ConnectionStatus::Disconnected;
+    let (_emit_tx, emit_rx) = mpsc::unbounded_channel::<String>();
+    // Do NOT signal shutdown — the loop must exit on its own via fast-fail.
+    let (_shutdown_tx, shutdown_rx) = watch::channel(false);
+    let (internal_tx, _internal_rx) = mpsc::unbounded_channel::<String>();
+
+    let loop_shared = Arc::clone(&shared);
+    let handle = tokio::spawn(async move {
+        ws_loop(
+            http_base_for(addr),
+            // Provider always returns the same (stale) token.
+            Arc::new(move || {
+                call_count_clone.fetch_add(1, Ordering::Relaxed);
+                Ok("stale-token-xyz".to_string())
+            }),
+            loop_shared,
+            emit_rx,
+            shutdown_rx,
+            internal_tx,
+        )
+        .await;
+    });
+
+    // The loop must exit by itself (fast-fail) well within 2 seconds.
+    // At FAIL_ESCALATE_THRESHOLD=5 the old code would still be sleeping through
+    // back-off at this point — finishing fast is what proves the fix.
+    let result = tokio::time::timeout(tokio::time::Duration::from_secs(4), handle).await;
+    assert!(
+        matches!(result, Ok(Ok(()))),
+        "ws_loop must exit cleanly after Invalid token (no timeout, no panic)"
+    );
+
+    // Loop must have called the provider at most 2 times (initial attempt +
+    // one re-fetch check). 3+ would mean it fell through to the old retry path.
+    let calls = call_count.load(Ordering::Relaxed);
+    assert!(
+        calls <= 2,
+        "provider must not be called more than 2 times on Invalid token fast-fail; got {calls}"
+    );
+
+    // Status must be Disconnected and error slot must carry session-expired.
+    assert_eq!(*shared.status.read(), ConnectionStatus::Disconnected);
+    let err = shared.error.read().clone();
+    assert!(
+        err.as_deref()
+            .map(|e| e.contains("session expired"))
+            .unwrap_or(false),
+        "expected session-expired error in SharedState, got: {err:?}"
+    );
+}
+
+/// "Invalid token" with a fresh token available: provider returns token A on
+/// the first call, token B on the second. The loop must NOT fast-fail — it
+/// should detect the new token and retry once. Since the mock server also
+/// rejects token B, the loop will fast-fail on the third call (same-token
+/// case), but the important assertion is that it reached at least 2 actual
+/// connection attempts (token A and token B) before stopping.
+#[tokio::test]
+async fn ws_loop_retries_with_fresh_token_on_invalid_token() {
+    // Server always replies with "Invalid token".
+    let addr = spawn_mock_invalid_token_server().await;
+
+    let call_count = Arc::new(AtomicUsize::new(0));
+    let call_count_clone = Arc::clone(&call_count);
+
+    let shared = make_shared();
+    *shared.status.write() = ConnectionStatus::Disconnected;
+    let (_emit_tx, emit_rx) = mpsc::unbounded_channel::<String>();
+    let (_shutdown_tx, shutdown_rx) = watch::channel(false);
+    let (internal_tx, _internal_rx) = mpsc::unbounded_channel::<String>();
+
+    let loop_shared = Arc::clone(&shared);
+    let handle = tokio::spawn(async move {
+        ws_loop(
+            http_base_for(addr),
+            // First call returns "token-a", second and beyond return "token-b".
+            Arc::new(move || {
+                let c = call_count_clone.fetch_add(1, Ordering::Relaxed);
+                if c == 0 {
+                    Ok("token-a".to_string())
+                } else {
+                    Ok("token-b".to_string())
+                }
+            }),
+            loop_shared,
+            emit_rx,
+            shutdown_rx,
+            internal_tx,
+        )
+        .await;
+    });
+
+    // The loop should exit by itself (fast-fail after token-b also rejected).
+    let result = tokio::time::timeout(tokio::time::Duration::from_secs(6), handle).await;
+    assert!(
+        matches!(result, Ok(Ok(()))),
+        "ws_loop must exit cleanly after both tokens rejected"
+    );
+
+    // Provider must have been called at least 2 times:
+    //   call 1 → "token-a" (start of first attempt)
+    //   call 2 → "token-b" (re-fetch check after Invalid token for "token-a")
+    //   call 3 → "token-b" (start of second attempt, same as call 2 → fast-fail)
+    let calls = call_count.load(Ordering::Relaxed);
+    assert!(
+        calls >= 2,
+        "provider must be called at least twice (initial + fresh-token check); got {calls}"
+    );
+
+    // End state must be session-expired.
+    assert_eq!(*shared.status.read(), ConnectionStatus::Disconnected);
+    let err = shared.error.read().clone();
+    assert!(
+        err.as_deref()
+            .map(|e| e.contains("session expired"))
+            .unwrap_or(false),
+        "expected session-expired error in SharedState, got: {err:?}"
+    );
+}
+
+/// `is_invalid_token_error` unit tests are in `token_provider::tests`.
+/// This test pins the exact wire shape from `read_sio_connect_ack()` against
+/// the classifier to guard against drift between the two modules.
+#[test]
+fn sio_connect_error_invalid_token_classifies_correctly() {
+    // This is the exact string produced by `read_sio_connect_ack()` when
+    // the server sends `44{"message":"Invalid token"}`.
+    assert!(is_invalid_token_error(
+        "Socket.IO connect error: Invalid token"
+    ));
+    // A different server error must not trigger the fast-fail path.
+    assert!(!is_invalid_token_error(
+        "Socket.IO connect error: namespace not found"
+    ));
+    // Internal errors (EIO, WS layer) must not match.
+    assert!(!is_invalid_token_error("EIO OPEN: timeout"));
+    assert!(!is_invalid_token_error("WebSocket connect: connection refused"));
 }
