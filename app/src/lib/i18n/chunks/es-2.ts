@@ -320,7 +320,8 @@ const es2: TranslationMap = {
   'chat.attachment.remove': 'Eliminar {name}',
   'chat.attachment.tooMany': 'Máximo {max} imágenes por mensaje',
   'chat.attachment.tooLarge': 'La imagen supera el límite de tamaño de {max}',
-  'chat.attachment.unsupportedType': 'Tipo de archivo no compatible. Use PNG, JPEG, WebP, GIF o BMP.',
+  'chat.attachment.unsupportedType':
+    'Tipo de archivo no compatible. Use PNG, JPEG, WebP, GIF o BMP.',
   'chat.attachment.readFailed': 'No se pudo leer el archivo',
   'memory.searchAria': 'Buscar en memoria',
   'memory.searchPlaceholder': 'Buscar entradas de memoria...',

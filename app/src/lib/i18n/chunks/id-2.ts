@@ -314,7 +314,8 @@ const id2: TranslationMap = {
   'chat.attachment.remove': 'Hapus {name}',
   'chat.attachment.tooMany': 'Maksimal {max} gambar per pesan',
   'chat.attachment.tooLarge': 'Gambar melebihi batas ukuran {max}',
-  'chat.attachment.unsupportedType': 'Jenis file tidak didukung. Gunakan PNG, JPEG, WebP, GIF, atau BMP.',
+  'chat.attachment.unsupportedType':
+    'Jenis file tidak didukung. Gunakan PNG, JPEG, WebP, GIF, atau BMP.',
   'chat.attachment.readFailed': 'Tidak dapat membaca file',
   'memory.searchAria': 'Cari memori',
   'memory.searchPlaceholder': 'Cari entri memori...',

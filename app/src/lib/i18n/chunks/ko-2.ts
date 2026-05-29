@@ -298,7 +298,8 @@ const ko2: TranslationMap = {
   'chat.attachment.remove': '{name} 제거',
   'chat.attachment.tooMany': '메시지당 최대 {max}개 이미지',
   'chat.attachment.tooLarge': '이미지가 {max} 크기 제한을 초과합니다',
-  'chat.attachment.unsupportedType': '지원되지 않는 파일 형식입니다. PNG, JPEG, WebP, GIF 또는 BMP를 사용하세요.',
+  'chat.attachment.unsupportedType':
+    '지원되지 않는 파일 형식입니다. PNG, JPEG, WebP, GIF 또는 BMP를 사용하세요.',
   'chat.attachment.readFailed': '파일을 읽을 수 없습니다',
   'memory.searchAria': '메모리 검색',
   'memory.searchPlaceholder': '메모리 항목 검색...',

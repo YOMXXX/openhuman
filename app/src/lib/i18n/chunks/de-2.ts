@@ -323,7 +323,8 @@ const de2: TranslationMap = {
   'chat.attachment.remove': '{name} entfernen',
   'chat.attachment.tooMany': 'Maximal {max} Bilder pro Nachricht',
   'chat.attachment.tooLarge': 'Bild überschreitet die Größenbeschränkung von {max}',
-  'chat.attachment.unsupportedType': 'Nicht unterstützter Dateityp. Verwenden Sie PNG, JPEG, WebP, GIF oder BMP.',
+  'chat.attachment.unsupportedType':
+    'Nicht unterstützter Dateityp. Verwenden Sie PNG, JPEG, WebP, GIF oder BMP.',
   'chat.attachment.readFailed': 'Datei konnte nicht gelesen werden',
   'memory.searchAria': 'Speicher durchsuchen',
   'memory.searchPlaceholder': 'Speichereinträge durchsuchen...',

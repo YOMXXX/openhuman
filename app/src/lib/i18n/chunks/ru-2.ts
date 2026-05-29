@@ -316,7 +316,8 @@ const ru2: TranslationMap = {
   'chat.attachment.remove': 'Удалить {name}',
   'chat.attachment.tooMany': 'Максимум {max} изображений на сообщение',
   'chat.attachment.tooLarge': 'Изображение превышает ограничение размера {max}',
-  'chat.attachment.unsupportedType': 'Неподдерживаемый тип файла. Используйте PNG, JPEG, WebP, GIF или BMP.',
+  'chat.attachment.unsupportedType':
+    'Неподдерживаемый тип файла. Используйте PNG, JPEG, WebP, GIF или BMP.',
   'chat.attachment.readFailed': 'Не удалось прочитать файл',
   'memory.searchAria': 'Поиск в памяти',
   'memory.searchPlaceholder': 'Поиск записей памяти...',

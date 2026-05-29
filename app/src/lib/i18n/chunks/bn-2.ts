@@ -317,7 +317,8 @@ const bn2: TranslationMap = {
   'chat.attachment.remove': '{name} সরান',
   'chat.attachment.tooMany': 'প্রতি বার্তায় সর্বোচ্চ {max}টি ছবি',
   'chat.attachment.tooLarge': 'ছবি {max} আকারের সীমা অতিক্রম করেছে',
-  'chat.attachment.unsupportedType': 'অসমর্থিত ফাইল প্রকার। PNG, JPEG, WebP, GIF, বা BMP ব্যবহার করুন।',
+  'chat.attachment.unsupportedType':
+    'অসমর্থিত ফাইল প্রকার। PNG, JPEG, WebP, GIF, বা BMP ব্যবহার করুন।',
   'chat.attachment.readFailed': 'ফাইল পড়া যায়নি',
   'memory.searchAria': 'মেমোরি খুঁজুন',
   'memory.searchPlaceholder': 'মেমোরি এন্ট্রি খুঁজুন...',
