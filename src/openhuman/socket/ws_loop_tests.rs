@@ -1098,6 +1098,110 @@ async fn ws_loop_retries_with_fresh_token_on_invalid_token() {
     );
 }
 
+/// Regression guard for the CodeRabbit Major on PR #2905: a non-deterministic
+/// provider that returns a **different** non-empty token on every call must
+/// NOT cause the loop to hot-loop indefinitely down the `RetryImmediately`
+/// path. The bound is one immediate retry per fresh-token cycle; subsequent
+/// `RetryImmediately` outcomes must fall through to the normal
+/// `consecutive_failures` + backoff sleep path, which converges on a
+/// definitive outcome (escalation or session timeout) rather than hammering
+/// the server in a tight loop.
+///
+/// Setup: server always replies `Invalid token`; provider returns a brand-new
+/// token on every call (token-0, token-1, token-2, …) — none of which the
+/// server will accept. Before the bound, this would skip backoff on every
+/// retry and produce tens-to-hundreds of attempts per second. After the
+/// bound, total provider calls in a 2-second window must stay small (the
+/// loop has to sleep through backoff between cycles).
+#[tokio::test]
+async fn ws_loop_bounds_fresh_token_retries_with_rotating_provider() {
+    // Server always replies with "Invalid token" — guaranteed rejection.
+    let addr = spawn_mock_invalid_token_server().await;
+
+    let call_count = Arc::new(AtomicUsize::new(0));
+    let call_count_clone = Arc::clone(&call_count);
+
+    let shared = make_shared();
+    *shared.status.write() = ConnectionStatus::Disconnected;
+    let (_emit_tx, emit_rx) = mpsc::unbounded_channel::<String>();
+    let (shutdown_tx, shutdown_rx) = watch::channel(false);
+    let (internal_tx, _internal_rx) = mpsc::unbounded_channel::<String>();
+
+    let loop_shared = Arc::clone(&shared);
+    let handle = tokio::spawn(async move {
+        ws_loop(
+            http_base_for(addr),
+            // Each provider call returns a fresh, distinct, non-empty token.
+            // This is the pathological provider the CodeRabbit Major calls
+            // out: rapid server-side rotation, non-deterministic source, or
+            // buggy implementation that never converges.
+            Arc::new(move || {
+                let n = call_count_clone.fetch_add(1, Ordering::Relaxed);
+                Ok(format!("rotating-token-{n}"))
+            }),
+            loop_shared,
+            emit_rx,
+            shutdown_rx,
+            internal_tx,
+        )
+        .await;
+    });
+
+    // Give the loop ~2 seconds to misbehave. A hot-loop (no bound) would
+    // accumulate dozens-to-hundreds of provider calls in that window — each
+    // RetryImmediately is a `continue` with no sleep, and a roundtrip to the
+    // mock server is sub-100 ms on loopback. With the bound, every
+    // fresh-token cycle gets exactly one no-backoff retry; after that the
+    // loop must sleep through `backoff` (starts at 1 s, doubles each time)
+    // before re-attempting. The exponential backoff makes the upper bound
+    // here forgiving on slow CI while still being orders-of-magnitude below
+    // any plausible hot-loop count.
+    tokio::time::sleep(tokio::time::Duration::from_millis(2_000)).await;
+
+    let calls_before_shutdown = call_count.load(Ordering::Relaxed);
+    let _ = shutdown_tx.send(true);
+    let _ = tokio::time::timeout(tokio::time::Duration::from_secs(5), handle).await;
+
+    // The loop must NOT have hot-looped — a small bound proves the
+    // RetryImmediately path is now bounded. The exact number depends on CI
+    // scheduling, but 20 is comfortably above the steady-state expectation
+    // (~3–6 cycles in 2 s of backoff sleep, each cycle = 2 provider calls)
+    // and orders of magnitude below an unbounded loop.
+    assert!(
+        calls_before_shutdown <= 20,
+        "RetryImmediately must be bounded — rotating-token provider triggered \
+         {calls_before_shutdown} provider calls in 2 s (suspected hot-loop; expected ≤ 20)"
+    );
+
+    // …and the loop must have made progress toward escalation, not stayed
+    // pinned on the no-backoff `continue` path. After two cycles we should
+    // have observed at least the first fall-through (the *second*
+    // RetryImmediately of any cycle hits the bound), which means the loop
+    // has incremented `consecutive_failures` and started sleeping backoff.
+    // The clearest external proof of that is at least 3 provider calls:
+    //
+    //   call 1 → initial connect attempt (token-0)
+    //   call 2 → decide_after_invalid_token re-fetch (token-1) → RetryImmediately
+    //   call 3 → next loop iteration (token-2) → connect → Invalid token
+    //   call 4 → decide_after_invalid_token (token-3) → RetryImmediately → BOUND HIT
+    //            → falls through to backoff sleep
+    //
+    // We assert ≥ 3 (gives slack for a slow loopback) — i.e. we got past the
+    // single immediate retry into the bounded path.
+    assert!(
+        calls_before_shutdown >= 3,
+        "loop must have progressed past the initial connect + first immediate \
+         retry — observed only {calls_before_shutdown} provider calls"
+    );
+
+    // End state must be Disconnected. The status field reflects the most
+    // recent state transition; whether the loop reached `session expired`
+    // depends on how many cycles fit into the 2-second window before
+    // shutdown — but Disconnected is the unconditional end state on both
+    // paths.
+    assert_eq!(*shared.status.read(), ConnectionStatus::Disconnected);
+}
+
 /// `is_invalid_token_error` unit tests are in `token_provider::tests`.
 /// This test pins the exact wire shape from `read_sio_connect_ack()` against
 /// the classifier to guard against drift between the two modules.
