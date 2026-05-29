@@ -1077,10 +1077,21 @@ async fn ws_loop_retries_with_fresh_token_on_invalid_token() {
         "ws_loop must exit cleanly after both tokens rejected"
     );
 
-    // Provider must have been called at least 2 times:
-    //   call 1 → "token-a" (start of first attempt)
-    //   call 2 → "token-b" (re-fetch check after Invalid token for "token-a")
-    //   call 3 → "token-b" (start of second attempt, same as call 2 → fast-fail)
+    // Provider must have been called at least 2 times. Per the Minor on
+    // PR #2905 the fresh token is now carried forward through
+    // `pending_token` so the second attempt does NOT re-call the provider —
+    // it uses the exact value the decision step validated. The expected
+    // sequence is therefore:
+    //
+    //   call 1 → "token-a" (start of first attempt, no pending_token)
+    //   call 2 → "token-b" (re-fetch check after Invalid token for
+    //                       "token-a") → RetryImmediately stashes "token-b"
+    //                       into pending_token
+    //   (no extra call here: second attempt consumes pending_token = "token-b")
+    //   call 3 → "token-b" (re-fetch check after Invalid token for
+    //                       "token-b") → same token → Escalate
+    //
+    // We assert ≥ 2 — i.e. the fresh-token check fired at least once.
     let calls = call_count.load(Ordering::Relaxed);
     assert!(
         calls >= 2,
@@ -1174,17 +1185,19 @@ async fn ws_loop_bounds_fresh_token_retries_with_rotating_provider() {
     );
 
     // …and the loop must have made progress toward escalation, not stayed
-    // pinned on the no-backoff `continue` path. After two cycles we should
-    // have observed at least the first fall-through (the *second*
-    // RetryImmediately of any cycle hits the bound), which means the loop
-    // has incremented `consecutive_failures` and started sleeping backoff.
-    // The clearest external proof of that is at least 3 provider calls:
+    // pinned on the no-backoff `continue` path. After the bound has fired
+    // once the loop has incremented `consecutive_failures` and started
+    // sleeping backoff. The clearest external proof of that is at least 3
+    // provider calls (per-iteration flow with the Minor `pending_token`
+    // optimisation also applied):
     //
     //   call 1 → initial connect attempt (token-0)
-    //   call 2 → decide_after_invalid_token re-fetch (token-1) → RetryImmediately
-    //   call 3 → next loop iteration (token-2) → connect → Invalid token
-    //   call 4 → decide_after_invalid_token (token-3) → RetryImmediately → BOUND HIT
-    //            → falls through to backoff sleep
+    //   call 2 → decide_after_invalid_token re-fetch (token-1) →
+    //            RetryImmediately, stashes token-1 into pending_token
+    //   (second attempt consumes pending_token; no new provider call)
+    //   call 3 → decide_after_invalid_token after the second Invalid token
+    //            (token-2) → RetryImmediately → BOUND HIT → falls through
+    //            to backoff sleep
     //
     // We assert ≥ 3 (gives slack for a slow loopback) — i.e. we got past the
     // single immediate retry into the bounded path.
@@ -1225,13 +1238,15 @@ fn sio_connect_error_invalid_token_classifies_correctly() {
 
 // ── decide_after_invalid_token ─────────────────────────────────────────────
 
-/// Provider returns a genuinely fresh token → loop should retry immediately.
+/// Provider returns a genuinely fresh token → loop should retry immediately,
+/// carrying the validated fresh token forward so the next attempt sends
+/// exactly that value instead of re-reading the provider.
 #[test]
 fn decide_after_invalid_token_fresh_token_returns_retry() {
     let provider: TokenProvider = Arc::new(|| Ok("fresh-token".to_string()));
     match decide_after_invalid_token("stale-token", &provider) {
-        InvalidTokenAction::RetryImmediately { fresh_len } => {
-            assert_eq!(fresh_len, "fresh-token".len());
+        InvalidTokenAction::RetryImmediately { token } => {
+            assert_eq!(token, "fresh-token");
         }
         InvalidTokenAction::Escalate { reason } => {
             panic!("expected RetryImmediately, got Escalate({reason})");

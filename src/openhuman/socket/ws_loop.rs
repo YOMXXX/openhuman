@@ -81,6 +81,15 @@ pub(super) async fn ws_loop(
     // shot we fall through to the normal backoff + escalation path. See the
     // CodeRabbit Major on PR #2905.
     let mut fresh_token_retries: u32 = 0;
+    // Fresh token carried forward from a `RetryImmediately` decision. When
+    // `decide_after_invalid_token` re-fetches the provider and finds a
+    // genuinely different value, we stash it here so the next loop iteration
+    // skips the redundant top-of-loop provider call and uses **exactly** the
+    // token that was validated by the decision step — avoiding a redundant
+    // lock + disk read and the case where the logged fresh-token length
+    // drifts from what's actually sent over the wire. See the CodeRabbit
+    // Minor on PR #2905.
+    let mut pending_token: Option<String> = None;
 
     // `ws_url` is the *resolved* socket URL we're currently connecting to.
     // If the backend responds with an HTTP 3xx during the upgrade (typical when
@@ -94,28 +103,39 @@ pub(super) async fn ws_loop(
             break;
         }
 
-        // Fetch the latest token before every attempt. If the provider
-        // returns an error (no token stored → user is logged out, profile
-        // corrupt), there is nothing useful to retry with — surface the error
-        // and exit cleanly rather than spamming the server.
-        let token = match token_provider() {
-            Ok(t) if !t.trim().is_empty() => t,
-            Ok(_) => {
-                log::warn!("[socket] ws_loop: token provider returned empty token — stopping");
-                *shared.error.write() = Some("session expired — please sign in again".to_string());
-                *shared.status.write() = ConnectionStatus::Disconnected;
-                *shared.socket_id.write() = None;
-                emit_state_change(&shared);
-                return;
-            }
-            Err(e) => {
-                log::warn!("[socket] ws_loop: token provider failed — stopping: {e}");
-                *shared.error.write() = Some("session expired — please sign in again".to_string());
-                *shared.status.write() = ConnectionStatus::Disconnected;
-                *shared.socket_id.write() = None;
-                emit_state_change(&shared);
-                return;
-            }
+        // If a fresh token was carried forward from the previous iteration's
+        // `RetryImmediately` decision, consume it now and skip the redundant
+        // provider call — `decide_after_invalid_token` already validated that
+        // it is non-empty and distinct from the previously-rejected token, so
+        // re-reading the provider here would only re-acquire the same lock /
+        // re-hit the same disk file. Otherwise fetch the latest token
+        // afresh. If the provider returns an error (no token stored → user
+        // is logged out, profile corrupt), there is nothing useful to retry
+        // with — surface the error and exit cleanly rather than spamming
+        // the server.
+        let token = match pending_token.take() {
+            Some(t) => t,
+            None => match token_provider() {
+                Ok(t) if !t.trim().is_empty() => t,
+                Ok(_) => {
+                    log::warn!("[socket] ws_loop: token provider returned empty token — stopping");
+                    *shared.error.write() =
+                        Some("session expired — please sign in again".to_string());
+                    *shared.status.write() = ConnectionStatus::Disconnected;
+                    *shared.socket_id.write() = None;
+                    emit_state_change(&shared);
+                    return;
+                }
+                Err(e) => {
+                    log::warn!("[socket] ws_loop: token provider failed — stopping: {e}");
+                    *shared.error.write() =
+                        Some("session expired — please sign in again".to_string());
+                    *shared.status.write() = ConnectionStatus::Disconnected;
+                    *shared.socket_id.write() = None;
+                    emit_state_change(&shared);
+                    return;
+                }
+            },
         };
 
         log::info!(
@@ -171,7 +191,8 @@ pub(super) async fn ws_loop(
                     token.len()
                 );
                 match decide_after_invalid_token(&token, &token_provider) {
-                    InvalidTokenAction::RetryImmediately { fresh_len } => {
+                    InvalidTokenAction::RetryImmediately { token: fresh } => {
+                        let fresh_len = fresh.len();
                         fresh_token_retries = fresh_token_retries.saturating_add(1);
                         if fresh_token_retries > 1 {
                             // We already gave the fresh-token cycle one
@@ -191,15 +212,29 @@ pub(super) async fn ws_loop(
                             consecutive_failures = consecutive_failures.saturating_add(1);
                             log_connection_failure(consecutive_failures, &reason);
                             // Fall through to the backoff sleep below.
+                            // Intentionally drop `fresh` here: the bounded
+                            // path now demands a backoff sleep, after which
+                            // the next loop iteration will re-fetch the
+                            // provider afresh (the token we just got may
+                            // itself be stale by the time the sleep
+                            // completes — this is the only knowable-correct
+                            // policy for a rotating-source provider).
                         } else {
                             // We have a genuinely different token — try once
-                            // immediately (no backoff sleep). If this also fails we
-                            // will go through the normal escalation path on the next
-                            // loop iteration (either same-token Escalate or the
-                            // bounded fall-through above).
+                            // immediately (no backoff sleep) with the **exact**
+                            // token the decision step validated. Stash it for
+                            // the next iteration so the top-of-loop provider
+                            // call is skipped and we don't re-acquire the
+                            // session-store lock or re-read from disk just to
+                            // get the same value back. If this attempt also
+                            // fails we will go through the normal escalation
+                            // path on the next loop iteration (either
+                            // same-token Escalate or the bounded fall-through
+                            // above).
                             log::info!(
                                 "[socket] Fresh token available (len={fresh_len}), retrying immediately"
                             );
+                            pending_token = Some(fresh);
                             // Don't increment consecutive_failures for an attempt we
                             // couldn't have avoided — the token we used was already
                             // stale at fetch time.
@@ -314,8 +349,12 @@ fn log_connection_failure(consecutive: u32, reason: &str) {
 /// rejection from the server.
 enum InvalidTokenAction {
     /// A genuinely different token is available — retry the connection
-    /// immediately (no backoff sleep). `fresh_len` is carried for logging.
-    RetryImmediately { fresh_len: usize },
+    /// immediately (no backoff sleep). The fresh token is carried forward so
+    /// the next `run_connection` uses **exactly** the validated value, not
+    /// whatever a subsequent re-read of the provider returns — avoiding a
+    /// redundant lock + disk I/O and the case where the logged `fresh_len`
+    /// drifts from the token actually sent over the wire.
+    RetryImmediately { token: String },
     /// No fresh token is available; the session is definitively expired.
     /// `reason` is a short diagnostic string for the log line.
     Escalate { reason: String },
@@ -327,7 +366,8 @@ enum InvalidTokenAction {
 ///
 /// Calls `provider()` exactly once. No socket I/O.
 ///
-/// - Provider returns a **different, non-empty** token → `RetryImmediately`.
+/// - Provider returns a **different, non-empty** token → `RetryImmediately`
+///   carrying the fresh token for the caller to reuse on the next attempt.
 /// - Provider returns the **same** token → `Escalate` (no point retrying).
 /// - Provider returns an **empty** token → `Escalate` (treat as no session).
 /// - Provider returns `Err` → `Escalate` with the provider error as reason.
@@ -337,9 +377,7 @@ fn decide_after_invalid_token(
 ) -> InvalidTokenAction {
     match provider() {
         Ok(fresh) if !fresh.trim().is_empty() && fresh != previous_token => {
-            InvalidTokenAction::RetryImmediately {
-                fresh_len: fresh.len(),
-            }
+            InvalidTokenAction::RetryImmediately { token: fresh }
         }
         Ok(same) if same == previous_token => InvalidTokenAction::Escalate {
             reason: "token unchanged after provider re-fetch".to_string(),
