@@ -14,24 +14,34 @@ use crate::openhuman::memory_store::chunks::store::{delete_chunks_by_source, is_
 use crate::openhuman::memory_store::chunks::types::SourceKind;
 use crate::openhuman::memory_sync::canonicalize::document::DocumentInput;
 
+/// Platform identifier embedded in Linear document metadata.
 pub const LINEAR_PLATFORM: &str = "linear";
+
+/// Stable tags attached to every Linear-ingested issue chunk.
 pub const DEFAULT_TAGS: &[&str] = &["linear", "ingested"];
 
+/// Build the memory-tree source id for one Linear issue in one connection.
 pub(crate) fn linear_source_id(connection_id: &str, issue_id: &str) -> String {
     format!("linear:{connection_id}:{issue_id}")
 }
 
+/// Render the raw Linear issue payload as a markdown document body.
 fn render_issue_body(title: &str, issue: &Value) -> String {
     let pretty = serde_json::to_string_pretty(issue).unwrap_or_else(|_| "{}".to_string());
     format!("# {title}\n\n```json\n{pretty}\n```\n")
 }
 
+/// Parse Linear's `updatedAt` timestamp, falling back to now on malformed input.
 fn parse_updated_time(raw: Option<&str>) -> DateTime<Utc> {
     raw.and_then(|s| DateTime::parse_from_rfc3339(s).ok())
         .map(|dt| dt.with_timezone(&Utc))
         .unwrap_or_else(Utc::now)
 }
 
+/// Ingest one Linear issue into memory_tree and return the written chunk count.
+///
+/// Edited issues reuse the same `source_id`, so prior chunks are deleted before
+/// re-ingest to avoid the document pipeline's duplicate-source short-circuit.
 pub async fn ingest_issue_into_memory_tree(
     config: &Config,
     connection_id: &str,
