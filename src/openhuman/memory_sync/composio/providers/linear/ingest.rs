@@ -205,8 +205,7 @@ mod tests {
         let cfg_for_blocking = cfg.clone();
         let expected = linear_source_id(connection_id, issue_id);
         let registered = tokio::task::spawn_blocking(move || {
-            is_source_ingested(&cfg_for_blocking, SourceKind::Document, &expected)
-                .unwrap_or(false)
+            is_source_ingested(&cfg_for_blocking, SourceKind::Document, &expected).unwrap_or(false)
         })
         .await
         .expect("source-check task join");

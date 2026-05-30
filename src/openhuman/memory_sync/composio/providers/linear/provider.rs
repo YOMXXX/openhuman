@@ -22,9 +22,7 @@ use async_trait::async_trait;
 use serde_json::json;
 
 use super::{ingest::ingest_issue_into_memory_tree, sync};
-use crate::openhuman::memory_sync::composio::providers::sync_state::{
-    extract_item_id, SyncState,
-};
+use crate::openhuman::memory_sync::composio::providers::sync_state::{extract_item_id, SyncState};
 use crate::openhuman::memory_sync::composio::providers::{
     merge_extra, pick_str, ComposioProvider, CuratedTool, NormalizedTask, ProviderContext,
     ProviderUserProfile, SyncOutcome, SyncReason, TaskFetchFilter,
