@@ -293,14 +293,10 @@ Canonical mapping of every product feature to its test source(s). Drives gap-fil
 
 | ID    | Feature                                  | Layer | Test path(s)                                                                       | Status | Notes |
 | ----- | ---------------------------------------- | ----- | ---------------------------------------------------------------------------------- | ------ | ----- |
-| 8.3.1 | Cross-Chat Recall                        | RU    | `src/openhuman/memory/tree/retrieval/benchmarks.rs::bench_cross_chat_recall`        | ✅     | Synthetic fixture; verifies relevant source retrieval across chat scopes |
 | 8.3.2 | Cross-Chat Entity Discoverability        | RU    | `src/openhuman/memory/tree/retrieval/benchmarks.rs::bench_cross_chat_entity_discoverable` | ✅     | Verifies entity canonicalisation across multiple chats |
 | 8.3.3 | Citation Bundle Provenance               | RU    | `src/openhuman/memory/tree/retrieval/benchmarks.rs::bench_citation_bundle_provenance` | ✅     | Verifies source_ref and tree_scope are populated in retrieval hits |
 | 8.3.4 | Citation Fetch Leaves Hydration         | RU    | `src/openhuman/memory/tree/retrieval/benchmarks.rs::bench_citation_fetch_leaves_hydrates` | ✅     | Verifies fetch_leaves returns content for exact chunk IDs |
-| 8.3.5 | Stale Preference Newer Supersedes       | RU    | `src/openhuman/memory/tree/retrieval/benchmarks.rs::bench_stale_preference_newer_supersedes` | ✅     | Verifies newer explicit correction appears alongside older preference |
-| 8.3.6 | Contradiction Surfaces Both with Provenance | RU | `src/openhuman/memory/tree/retrieval/benchmarks.rs::bench_contradiction_surfaces_both_with_provenance` | ✅     | Verifies disagreeing sources surface with provenance labels |
 | 8.3.7 | Long-Source Exact Leaf Retrieval         | RU    | `src/openhuman/memory/tree/retrieval/benchmarks.rs::bench_long_source_retrieves_exact_leaf` | 🟡     | Embedder required for seal + chunking; test runs in inert mode but assertions are conditional |
-| 8.3.8 | Drill-Down Isolates Children             | RU    | `src/openhuman/memory/tree/retrieval/benchmarks.rs::bench_drill_down_isolates_children` | ✅     | Verifies query_topic does not cross scope boundaries |
 | 8.3.9 | Scale Ingest 20 Sources No Real Data    | RU    | `src/openhuman/memory/tree/retrieval/benchmarks.rs::bench_scale_ingest_20_sources_no_real_data` | ✅     | Verifies retrieval correctness at scale with synthetic data |
 
 ### 8.4 Explicit User Preferences (Two-Lane)
@@ -422,6 +418,9 @@ Canonical mapping of every product feature to its test source(s). Drives gap-fil
 | 11.1.6 | SearXNG MCP search         | RU    | `src/openhuman/integrations/searxng.rs`, `src/openhuman/mcp_server/tools.rs`, `src/openhuman/tools/schemas.rs`      | ✅     | Self-hosted search config, normalized results, MCP argument validation, and mocked HTTP execution |
 | 11.1.7 | Bundled prompt resources   | RU    | `src/openhuman/mcp_server/resources.rs`, `src/openhuman/mcp_server/protocol.rs`                                     | ✅     | `resources/list` catalog + `resources/read` happy path, -32002 unknown URI, -32602 missing param, catalog-mirrors-BUILTINS parity test |
 | 11.1.8 | Resource templates list    | RU    | `src/openhuman/mcp_server/resources.rs`, `src/openhuman/mcp_server/protocol.rs`                                     | ✅     | `resources/templates/list` returns `{resourceTemplates: []}` (static catalog), tolerates unknown/cursor params |
+| 11.1.10 | MCP registry install→connect→tool_call | RI    | `tests/json_rpc_e2e.rs` (`mcp_clients_install_connect_tool_call_happy_path`), `tests/mcp_registry_e2e.rs`, `src/openhuman/mcp_registry/setup_ops.rs` (this PR, #3039) | ✅     | HTTP-RPC happy path install→connect→tool_call→update_env against `test-mcp-stub`; transport-aware install (stdio + http_remote) via `build_install_transport` |
+| 11.1.11 | MCP env reconfigure + registry creds | RI/VU | `tests/json_rpc_e2e.rs` (`mcp_clients_registry_settings_roundtrip`), `src/openhuman/mcp_registry/registries/mcp_official.rs`, `app/src/components/channels/mcp/InstalledServerDetail.test.tsx` (this PR, #3039) | ✅     | `update_env` persist+reconnect; `registry_settings` get/set with secrets write-only (config-first, env-fallback); reconfigure form validation |
+| 11.1.12 | MCP UI surface + setup-agent client | VU    | `app/src/components/channels/mcp/InstallDialog.test.tsx`, `app/src/services/api/mcpClientsApi.test.ts`, `app/src/services/api/mcpSetupApi.test.ts` (this PR, #3039) | ✅     | Skills `?tab=mcp` renders `McpServersTab` (not Coming Soon); auto-connect on install (best-effort); typed `mcpSetupApi` wrapper |
 
 <!-- 11.1.9 Vault Markdown Writes — removed: Knowledge Vaults dropped (vault domain + VaultPanel deleted). -->
 
