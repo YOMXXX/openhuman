@@ -8,7 +8,7 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::{
     atomic::{AtomicUsize, Ordering},
-    Arc, Mutex,
+    Arc, Mutex, MutexGuard, OnceLock,
 };
 
 use async_trait::async_trait;
@@ -64,14 +64,14 @@ struct EnvVarGuard {
 impl EnvVarGuard {
     fn set(key: &'static str, value: impl AsRef<std::ffi::OsStr>) -> Self {
         let previous = std::env::var_os(key);
-        // SAFETY: this integration test is validated with --test-threads=1.
+        // SAFETY: tests that mutate environment variables hold env_lock().
         unsafe { std::env::set_var(key, value) };
         Self { key, previous }
     }
 
     fn unset(key: &'static str) -> Self {
         let previous = std::env::var_os(key);
-        // SAFETY: this integration test is validated with --test-threads=1.
+        // SAFETY: tests that mutate environment variables hold env_lock().
         unsafe { std::env::remove_var(key) };
         Self { key, previous }
     }
@@ -81,15 +81,30 @@ impl Drop for EnvVarGuard {
     fn drop(&mut self) {
         match &self.previous {
             Some(value) => {
-                // SAFETY: this integration test is validated with --test-threads=1.
+                // SAFETY: tests that mutate environment variables hold env_lock().
                 unsafe { std::env::set_var(self.key, value) }
             }
             None => {
-                // SAFETY: this integration test is validated with --test-threads=1.
+                // SAFETY: tests that mutate environment variables hold env_lock().
                 unsafe { std::env::remove_var(self.key) }
             }
         }
     }
+}
+
+/// Process-wide lock serializing tests that mutate global environment
+/// variables through [`EnvVarGuard`]. `cargo llvm-cov` runs integration tests
+/// multi-threaded (it does not pass `--test-threads=1`), so without this guard
+/// concurrent tests can point shared provider/local-AI state at different temp
+/// workspaces or mock binaries. Each env-mutating test holds this guard for its
+/// whole body; declaring it before any `EnvVarGuard` makes it drop last, after
+/// the env is restored.
+fn env_lock() -> MutexGuard<'static, ()> {
+    static ENV_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+    ENV_LOCK
+        .get_or_init(|| Mutex::new(()))
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
 }
 
 #[tokio::test]
@@ -209,6 +224,7 @@ async fn compatible_provider_covers_responses_fallback_auth_and_merge_system_edg
 
 #[tokio::test]
 async fn provider_admin_model_listing_covers_openrouter_validation_and_local_synthesis() {
+    let _env_guard = env_lock();
     let (base, state) = serve_mock().await;
     let tmp = tempdir().expect("tempdir");
     let mut config = temp_config(&tmp);
@@ -291,6 +307,7 @@ async fn provider_admin_model_listing_covers_openrouter_validation_and_local_syn
 
 #[tokio::test]
 async fn factory_covers_legacy_api_key_scoping_and_abstract_model_errors() {
+    let _env_guard = env_lock();
     let (base, state) = serve_mock().await;
     let tmp = tempdir().expect("tempdir");
     let mut config = temp_config(&tmp);
@@ -491,6 +508,7 @@ async fn reliable_provider_covers_chat_tools_streaming_and_context_bail_edges() 
 
 #[tokio::test]
 async fn local_admin_covers_diagnostics_errors_assets_status_and_shutdown_with_fake_bins() {
+    let _env_guard = env_lock();
     let (base, _state) = serve_mock().await;
     let tmp = tempdir().expect("tempdir");
     let mut config = temp_config(&tmp);
