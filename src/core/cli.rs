@@ -280,6 +280,9 @@ fn run_server_command(args: &[String]) -> Result<()> {
     // Initialize the Tokio multi-threaded runtime.
     let rt = tokio::runtime::Builder::new_multi_thread()
         .enable_all()
+        // Match the desktop host runtime stack: sub-agent prompt/tool
+        // orchestration can exceed Tokio's default 2 MiB worker stack.
+        .thread_stack_size(8 * 1024 * 1024)
         .build()?;
     rt.block_on(async {
         crate::core::jsonrpc::run_server(host.as_deref(), port, socketio_enabled).await
