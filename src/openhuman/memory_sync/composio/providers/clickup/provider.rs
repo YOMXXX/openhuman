@@ -369,17 +369,16 @@ impl ComposioProvider for ClickUpProvider {
 
                     let title_text = sync::extract_task_name(task)
                         .unwrap_or_else(|| format!("ClickUp task {task_id}"));
-                    let doc_id = format!("composio-clickup-task-{task_id}");
                     let title = format!("ClickUp: {title_text}");
 
-                    match persist_single_item(
-                        &memory,
-                        "clickup",
-                        &doc_id,
+                    let conn_id = ctx.connection_id.as_deref().unwrap_or("unknown");
+                    match ingest_task_into_memory_tree(
+                        &ctx.config,
+                        conn_id,
+                        &task_id,
                         &title,
+                        updated.as_deref(),
                         task,
-                        "clickup",
-                        ctx.connection_id.as_deref(),
                     )
                     .await
                     {
@@ -392,7 +391,7 @@ impl ComposioProvider for ClickUpProvider {
                                 task_id = %task_id,
                                 workspace_id = %workspace_id,
                                 error = %e,
-                                "[composio:clickup] failed to persist task (continuing)"
+                                "[composio:clickup] ingest failed (continuing)"
                             );
                         }
                     }
