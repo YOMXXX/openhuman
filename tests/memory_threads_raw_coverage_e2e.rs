@@ -997,9 +997,7 @@ fn memory_schema_registries_and_query_tool_metadata_cover_public_surfaces() {
     let legacy_tree_schemas = openhuman_core::openhuman::memory::schema::all_controller_schemas();
     let legacy_tree_controllers =
         openhuman_core::openhuman::memory::schema::all_registered_controllers();
-    assert_eq!(legacy_tree_schemas.len(), 19);
-    assert_eq!(legacy_tree_schemas.len(), legacy_tree_controllers.len());
-    for function in [
+    let legacy_tree_functions = [
         "ingest",
         "list_chunks",
         "get_chunk",
@@ -1019,7 +1017,11 @@ fn memory_schema_registries_and_query_tool_metadata_cover_public_surfaces() {
         "reset_tree",
         "pipeline_status",
         "set_enabled",
-    ] {
+        "smart_walk",
+    ];
+    assert_eq!(legacy_tree_schemas.len(), legacy_tree_functions.len());
+    assert_eq!(legacy_tree_schemas.len(), legacy_tree_controllers.len());
+    for function in legacy_tree_functions {
         let schema = openhuman_core::openhuman::memory::schema::schemas(function);
         assert_eq!(schema.namespace, "memory_tree");
         assert_eq!(schema.function, function);
