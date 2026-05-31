@@ -46,17 +46,19 @@ struct EnvVarGuard {
     previous: Option<std::ffi::OsString>,
 }
 
+static ENV_VAR_LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+
 impl EnvVarGuard {
     fn set(key: &'static str, value: impl AsRef<std::ffi::OsStr>) -> Self {
         let previous = std::env::var_os(key);
-        // SAFETY: validation runs this integration test with --test-threads=1.
+        // SAFETY: tests that mutate environment variables hold ENV_VAR_LOCK.
         unsafe { std::env::set_var(key, value) };
         Self { key, previous }
     }
 
     fn unset(key: &'static str) -> Self {
         let previous = std::env::var_os(key);
-        // SAFETY: validation runs this integration test with --test-threads=1.
+        // SAFETY: tests that mutate environment variables hold ENV_VAR_LOCK.
         unsafe { std::env::remove_var(key) };
         Self { key, previous }
     }
@@ -66,11 +68,11 @@ impl Drop for EnvVarGuard {
     fn drop(&mut self) {
         match &self.previous {
             Some(value) => {
-                // SAFETY: validation runs this integration test with --test-threads=1.
+                // SAFETY: tests that mutate environment variables hold ENV_VAR_LOCK.
                 unsafe { std::env::set_var(self.key, value) }
             }
             None => {
-                // SAFETY: validation runs this integration test with --test-threads=1.
+                // SAFETY: tests that mutate environment variables hold ENV_VAR_LOCK.
                 unsafe { std::env::remove_var(self.key) }
             }
         }
@@ -251,6 +253,7 @@ async fn compatible_provider_covers_retry_headers_responses_and_parse_errors() {
 
 #[tokio::test]
 async fn local_admin_covers_assets_diagnostics_downloads_and_ops_errors() {
+    let _env_lock = ENV_VAR_LOCK.lock().await;
     let (base, state) = serve_mock().await;
     let tmp = tempdir().expect("tempdir");
     let mut config = temp_config(&tmp);
@@ -392,6 +395,7 @@ async fn local_admin_covers_assets_diagnostics_downloads_and_ops_errors() {
 
 #[tokio::test]
 async fn provider_model_listing_covers_local_synthesis_and_openrouter_failures() {
+    let _env_lock = ENV_VAR_LOCK.lock().await;
     let (base, _state) = serve_mock().await;
     let tmp = tempdir().expect("tempdir");
     let mut config = temp_config(&tmp);
@@ -465,6 +469,7 @@ async fn provider_model_listing_covers_local_synthesis_and_openrouter_failures()
 
 #[tokio::test]
 async fn local_admin_reports_unhealthy_runtime_and_lm_studio_issue_shapes() {
+    let _env_lock = ENV_VAR_LOCK.lock().await;
     let tmp = tempdir().expect("tempdir");
     let mut config = temp_config(&tmp);
     config.local_ai.runtime_enabled = true;
